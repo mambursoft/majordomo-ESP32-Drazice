@@ -1,0 +1,30 @@
+<!-- Drazice SMART — compact dashboard widget -->
+<div class="panel panel-default" style="margin-bottom:10px;">
+  <div class="panel-heading">
+    <img src="/img/modules/drazice_smart.png" style="width:20px;height:20px;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'">
+    <strong><#LANG_DS_TITLE#></strong>
+    [#if HTTP_AVAILABLE="1"#]
+      <span class="label label-success pull-right"><#LANG_DS_ST_HTTP_OK#></span>
+    [#else#]
+      <span class="label label-danger pull-right"><#LANG_DS_ST_HTTP_NO#></span>
+    [#endif#]
+  </div>
+  <div class="panel-body">
+    <div class="row">
+      <div class="col-xs-6">
+        <div class="text-muted" style="font-size:12px;"><#LANG_DS_ST_TEMP_UPPER#></div>
+        <div style="font-size:26px;font-weight:bold;">[#TEMP_UPPER_F#]</div>
+      </div>
+      <div class="col-xs-6">
+        <div class="text-muted" style="font-size:12px;"><#LANG_DS_ST_HEATING#></div>
+        <div style="font-size:26px;font-weight:bold;">[#HEATING_F#]</div>
+      </div>
+    </div>
+    <hr style="margin:8px 0;">
+    <div style="font-size:12px;">
+      <div><#LANG_DS_ST_POWER#>: <strong>[#POWER_SOURCE#]</strong></div>
+      <div><#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="label label-info"><#LANG_DS_YES#></span>[#else#]<#LANG_DS_NO#>[#endif#]</div>
+      <div class="text-muted" style="margin-top:4px;"><#LANG_DS_ST_WHY#>: [#DECISION_HUMAN#]</div>
+    </div>
+  </div>
+</div>

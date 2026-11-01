@@ -1,0 +1,93 @@
+# ============================================================================
+#  Прошивка ESPHome: WeAct Studio ESP32-D0WD-V3  ↔  Drazice OKHE 125 SMART
+# ============================================================================
+#  Призначення: читати стан бойлера по BLE та віддавати його у локальну мережу
+#  по HTTP REST (без MQTT, без обов'язкового Home Assistant). Керування
+#  проходить ЛИШЕ через локальний arbiter boiler_guard (guarded template
+#  entities), який забезпечує cooldown / lease / readback.
+#
+#  ПЕРЕД ЗБІРКОЮ:
+#    1. Скопіюйте secrets.example.yaml -> secrets.yaml і заповніть.
+#    2. Переконайтесь у версії ESPHome з requirements-build.lock.
+#    3. `esphome config firmware/boiler-weact.yaml`  (валідація)
+#       `esphome compile firmware/boiler-weact.yaml` (збірка)
+#
+#  УВАГА: board/flash/pinout підтвердити на реальній платі (flash_id, USB VID/PID).
+#  8 MB Flash з етикетки НЕ доводить PSRAM — PSRAM не вмикаємо без доказу.
+# ============================================================================
+
+substitutions:
+  device_name: "drazice-boiler"
+  friendly_name: "Drazice Boiler"
+  # Параметри безпеки локального guard (детермінована політика ESP32).
+  # Значення — ТЕСТОВІ дефолти, не сертифікована норма. Погодьте під свій монтаж.
+  max_continuous_heat_s: "3600"   # макс. тривалий фактичний нагрів (с)
+  min_pause_s: "600"              # обов'язкова пауза (cooldown) після ліміту (с)
+  heat_false_debounce_s: "30"     # скільки Heat=false має протриматись, щоб зарахувати паузу
+  lease_ttl_s: "180"              # дозвіл від MajorDoMo діє стільки (с); не поновили — забороняємо нові пуски
+  command_timeout_s: "20"         # час на readback підтвердження команди
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  # Безпечний старт: без агресивного нагріву, доки немає lease.
+  on_boot:
+    priority: 600
+    then:
+      - lambda: 'id(boiler_guard_component).on_safe_boot();'
+
+# Classic ESP32 (D0WD-V3), Arduino framework. НЕ C3/S3.
+# Фіксуємо 8 MB flash (flash_size). Якщо flash_id покаже інший розмір —
+# ВИПРАВИТИ тут і зібрати заново. 8 MB з етикетки НЕ доводить PSRAM.
+esp32:
+  board: esp32dev
+  flash_size: 8MB
+  framework:
+    type: arduino
+
+# ---- Підключення upstream BLE-компонента Drazice (БЕЗ копіювання коду) -------
+external_components:
+  - source:
+      type: git
+      url: https://github.com/LubosD/esphome-smartboiler
+      ref: c1b4e18ded8d3de58a19022e5155134982ddeb9a
+    components: [smartboiler]
+  # Наш локальний guard — у цьому ж репозиторії.
+  - source:
+      type: local
+      path: components
+    components: [boiler_guard]
+
+packages:
+  network:     !include packages/network.yaml
+  diagnostics: !include packages/diagnostics.yaml
+  smartboiler: !include packages/smartboiler.yaml
+  policy:      !include packages/policy_guard.yaml
+
+# Локальна вебсторінка без CDN, з автентифікацією. basic/ digest — перевірити у
+# вибраній версії ESPHome (див. docs/api-contract). HTTP у LAN НЕ шифрується.
+web_server:
+  port: 80
+  version: 3
+  # local: true -> JS/CSS вбудовано у прошивку, без завантаження з CDN (вимога ТЗ).
+  local: true
+  auth:
+    username: !secret web_username
+    password: !secret web_password
+  # include_internal: за замовчуванням false — внутрішні (прямі) entity бойлера
+  # НЕ показуємо, щоб не можна було обійти guard. Назовні — лише guarded entities.
+
+# Нативний API ESPHome ВИМКНЕНО (ми не використовуємо HA/нативний транспорт).
+# Якщо увімкнете для діагностики — не дозволяйте йому перезавантажувати пристрій
+# за відсутності клієнта (reboot_timeout: 0s).
+# api:
+#   reboot_timeout: 0s
+
+# OTA лише з паролем, лише в LAN/VPN, під наглядом, поза активним нагрівом.
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  level: INFO
+  baud_rate: 115200

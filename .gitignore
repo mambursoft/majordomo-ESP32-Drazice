@@ -1,0 +1,33 @@
+# Секрети — ніколи в Git
+firmware/secrets.yaml
+**/secrets.yaml
+**/config.local.json
+**/property-map.local.json
+**/*.local.json
+.env
+
+# Приватні артефакти прошивки (можуть містити Wi-Fi/NVS/UUID)
+backup-private.bin
+*.factory.bin
+*.ota.bin
+firmware/.esphome/
+firmware/build/
+
+# Python / venv
+.venv/
+.venv-build/
+__pycache__/
+*.pyc
+
+# Пакети (збираються скриптом)
+*.tar.gz
+*.tgz
+
+# Редактори / ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log

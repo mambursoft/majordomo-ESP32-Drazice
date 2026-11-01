@@ -1,0 +1,16 @@
+# Залежності для ЗБІРКИ прошивки (ESPHome).
+# Pin точних версій задля відтворюваності. Перевірено: синтаксис і сумісність
+# компонентів потребують фактичного `esphome compile` на машині користувача.
+#
+# ВАЖЛИВО (перевірено локальною валідацією `esphome config`):
+# upstream-компонент smartboiler викликає climate.climate_schema(),
+# number_schema(), select_schema() — ці хелпери існують лише у вікні
+# ESPHome 2025.5 … 2025.10 (у 2024.x їх ще немає; у 2025.11 їх видалено).
+# Тому фіксуємо 2025.9.x — остання стабільна лінія, де upstream валідується.
+# Якщо підніматимете версію — НЕ виходьте за 2025.10, інакше smartboiler зламається.
+esphome==2025.9.3
+# ESPHome сам тягне platformio та framework; версію framework фіксує сам ESPHome
+# у .esphome/. Нижче — явні pin для прозорості діагностики.
+# Arduino framework для classic ESP32:
+#   board: esp32dev
+#   framework: type=arduino (версію підтверджує лог compile)

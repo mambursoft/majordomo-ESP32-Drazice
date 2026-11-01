@@ -1,0 +1,51 @@
+# ---- Діагностика ESP32 -----------------------------------------------------
+# Доступна по HTTP REST для модуля MajorDoMo (вкладка «Діагностика»).
+
+sensor:
+  - platform: uptime
+    name: "ESP Uptime"
+    id: esp_uptime
+    update_interval: 30s
+  - platform: wifi_signal
+    name: "ESP Wi-Fi RSSI"
+    id: esp_rssi
+    update_interval: 30s
+  - platform: template
+    name: "ESP Free Heap"
+    id: esp_free_heap
+    unit_of_measurement: "B"
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: 'return (float) esp_get_free_heap_size();'
+  - platform: template
+    name: "ESP Min Free Heap"
+    id: esp_min_free_heap
+    unit_of_measurement: "B"
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: 'return (float) esp_get_minimum_free_heap_size();'
+
+text_sensor:
+  - platform: template
+    name: "ESP Reset Reason"
+    id: esp_reset_reason
+    update_interval: 60s
+    lambda: |-
+      switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:  return {"power_on"};
+        case ESP_RST_SW:       return {"software"};
+        case ESP_RST_PANIC:    return {"panic"};
+        case ESP_RST_INT_WDT:  return {"int_wdt"};
+        case ESP_RST_TASK_WDT: return {"task_wdt"};
+        case ESP_RST_WDT:      return {"wdt"};
+        case ESP_RST_BROWNOUT: return {"brownout"};
+        default:               return {"other"};
+      }
+  - platform: version
+    name: "ESPHome Version"
+    id: esphome_version
+
+binary_sensor:
+  - platform: status
+    name: "ESP Status"
+    id: esp_status

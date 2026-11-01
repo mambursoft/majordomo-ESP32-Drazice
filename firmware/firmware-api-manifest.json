@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "api_schema_version": 1,
+  "generator": "majordomo-ESP32-Drazice firmware",
+  "note": "Назви entity остаточно фіксуються ПІСЛЯ `esphome compile` і REST-тесту. HTTP-шлях ESPHome web_server v3 кодує ім'я entity за сегментами (пробіли -> %20). Модуль MajorDoMo читає value з JSON, а не парсить рядок.",
+  "esphome": {
+    "pinned_version": "2025.9.3",
+    "pin_window_note": "smartboiler upstream сумісний лише з ESPHome 2025.5..2025.10 (climate_schema/number_schema/select_schema). Не підіймати до 2025.11+.",
+    "board": "esp32dev",
+    "framework": "arduino",
+    "web_server_version": 3,
+    "auth": "http-basic-or-digest (перевірити у pin-версії)"
+  },
+  "upstream": {
+    "repo": "https://github.com/LubosD/esphome-smartboiler",
+    "commit": "c1b4e18ded8d3de58a19022e5155134982ddeb9a",
+    "mode_options": ["ANTIFREEZE", "SMART", "PROG", "MANUAL"],
+    "stop_available": false,
+    "setpoint_min_c": 40,
+    "setpoint_max_c": 80
+  },
+  "entities": {
+    "temp_lower":        {"domain": "sensor",       "name": "Boiler Temp Lower",   "unit": "°C", "writable": false},
+    "temp_upper":        {"domain": "sensor",       "name": "Boiler Temp Upper",   "unit": "°C", "writable": false},
+    "heating":           {"domain": "binary_sensor","name": "Boiler Heating",      "writable": false},
+    "hdo":               {"domain": "binary_sensor","name": "Boiler HDO",          "writable": false},
+    "energy_total":      {"domain": "sensor",       "name": "Boiler Energy",       "unit": "kWh", "writable": false},
+    "boiler_state":      {"domain": "text_sensor",  "name": "Boiler State",        "writable": false},
+    "boiler_version":    {"domain": "text_sensor",  "name": "Boiler Version",      "writable": false},
+    "boiler_name":       {"domain": "text_sensor",  "name": "Boiler Name",         "writable": false},
+    "requested_target":  {"domain": "number",       "name": "Boiler Requested Target", "unit": "°C", "writable": true, "min": 40, "max": 80, "step": 1, "guarded": true},
+    "requested_mode":    {"domain": "select",       "name": "Boiler Requested Mode", "writable": true, "options": ["ANTIFREEZE","SMART","PROG","MANUAL"], "guarded": true},
+    "lease_renew":       {"domain": "button",       "name": "Boiler Lease Renew",  "writable": true},
+    "release_ble":       {"domain": "button",       "name": "Boiler Release BLE",  "writable": true},
+    "reconnect_ble":     {"domain": "button",       "name": "Boiler Reconnect BLE","writable": true},
+    "guard_state":       {"domain": "text_sensor",  "name": "Boiler Guard State",  "writable": false},
+    "guard_reason":      {"domain": "text_sensor",  "name": "Boiler Guard Reason", "writable": false},
+    "pairing_pin":       {"domain": "number",       "name": "Boiler Pairing PIN",  "writable": true, "min": 1111, "max": 9999, "sensitive": true},
+    "continuous_heat_s": {"domain": "sensor",       "name": "Boiler Continuous Heat Seconds", "unit": "s", "writable": false},
+    "cooldown_remaining":{"domain": "sensor",       "name": "Boiler Cooldown Remaining", "unit": "s", "writable": false},
+    "lease_remaining":   {"domain": "sensor",       "name": "Boiler Lease Remaining", "unit": "s", "writable": false},
+    "esp_uptime":        {"domain": "sensor",       "name": "ESP Uptime",          "unit": "s", "writable": false},
+    "esp_rssi":          {"domain": "sensor",       "name": "ESP Wi-Fi RSSI",      "unit": "dBm", "writable": false},
+    "esp_free_heap":     {"domain": "sensor",       "name": "ESP Free Heap",       "unit": "B", "writable": false},
+    "esp_reset_reason":  {"domain": "text_sensor",  "name": "ESP Reset Reason",    "writable": false}
+  },
+  "capabilities": {
+    "stop": false,
+    "pause_verified": false,
+    "hard_pause": "BLOCKED-until-hardware-verified",
+    "heating_inhibit": "unknown"
+  }
+}

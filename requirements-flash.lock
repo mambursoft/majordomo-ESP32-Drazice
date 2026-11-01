@@ -1,0 +1,4 @@
+# Залежності для ЗАПИСУ прошивки (esptool, esptool 4.x / underscore-синтаксис).
+# Команди прошивання в docs/flashing-*.md використовують esptool 4.x
+# (write_flash, read_flash, flash_id, chip_id). НЕ змішувати з 5.x (hyphen).
+esptool==4.8.1

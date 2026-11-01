@@ -1,0 +1,200 @@
+<?php
+/**
+ * Planner: a PURE function. Input = immutable snapshot + config.
+ * Output = a decision with an explicit, explainable reason code.
+ * No cURL, no SQL, no time() inside — time is passed in the snapshot.
+ *
+ * Priority ladder (highest first), per specification §8.1:
+ *   1. Hardware protections (not modelled here; we never fight them).
+ *   2. Unusable data / unknown power / unverified control -> hold.
+ *   3. Local max continuous heat + mandatory cooldown.
+ *   4. Battery-source heating ban (policy).
+ *   5. Hygiene / comfort minimum (conflicts surfaced to a human).
+ *   6. Manual boost with TTL (does not bypass 1–4).
+ *   7. Comfort minimum before deadline.
+ *   8. Forecast / solar surplus / tariff savings.
+ *
+ * PHP 7.3 compatible.
+ *
+ * @package drazice_smart
+ * @license MIT
+ */
+
+namespace DraziceSmart;
+
+class Planner
+{
+    const ALGO_VERSION = '1.0.0';
+
+    /**
+     * @param array $s   snapshot (see Repository::buildSnapshot keys)
+     * @param array $c   config
+     * @return array decision: action, target_c, mode, reason, reason_human,
+     *               allowed(bool), priority_level(int)
+     */
+    public static function decide($s, $c)
+    {
+        $r = array(
+            'algo_version'   => self::ALGO_VERSION,
+            'action'         => 'hold',
+            'target_c'       => null,
+            'mode'           => null,
+            'reason'         => 'init',
+            'reason_human'   => '',
+            'allowed'        => false,
+            'priority_level' => 0,
+            'now_utc'        => isset($s['now_utc']) ? (int) $s['now_utc'] : 0,
+        );
+
+        $comfortMin  = isset($c['comfort_min_c'])  ? (float) $c['comfort_min_c']  : 45.0;
+        $nightTarget = isset($c['night_target_c']) ? (float) $c['night_target_c'] : 55.0;
+        $solarTarget = isset($c['solar_target_c']) ? (float) $c['solar_target_c'] : 65.0;
+        $absoluteMax = isset($c['absolute_max_c']) ? (float) $c['absolute_max_c'] : 70.0;
+
+        // --- Level 2: data/connectivity/control sanity -----------------------
+        if (empty($s['http_available'])) {
+            return self::fill($r, 'hold', null, null,
+                'esp_unreachable', 2, false,
+                'ESP32 недоступний по HTTP — керування призупинено.');
+        }
+        if (!isset($s['heating']) || $s['heating'] === null) {
+            return self::fill($r, 'hold', null, null,
+                'heat_state_unknown', 2, false,
+                'Невідомий стан нагріву (Heat) — не можна приймати рішення.');
+        }
+        if (!isset($s['temp_upper']) || $s['temp_upper'] === null) {
+            return self::fill($r, 'hold', null, null,
+                'temp_unknown', 2, false,
+                'Немає валідної температури бойлера — очікуємо дані.');
+        }
+
+        // --- Level 3: cooldown / continuous heat -----------------------------
+        if (!empty($s['in_cooldown']) || (isset($s['cooldown_remaining_s']) && (int) $s['cooldown_remaining_s'] > 0)) {
+            return self::fill($r, 'hold', 40.0, null,
+                'cooldown_active', 3, false,
+                'Триває обов\'язкова пауза після тривалого нагріву. Нагрів не дозволяємо.');
+        }
+
+        // --- Level 4: power source -------------------------------------------
+        $power = isset($s['power_source']) ? $s['power_source'] : 'unknown';
+        if ($power === 'unknown') {
+            return self::fill($r, 'hold', null, null,
+                'power_unknown', 4, false,
+                'Джерело живлення невідоме — консервативно не запускаємо нагрів.');
+        }
+        if ($power === 'battery') {
+            return self::fill($r, 'hold', null, null,
+                'battery_source_block', 4, false,
+                'Живлення від батарей — нові пуски нагріву заборонено політикою.');
+        }
+
+        // --- Level 6: manual boost (does not bypass 1-4) ---------------------
+        if (!empty($s['boost_active'])) {
+            $bt = isset($c['boost_target_c']) ? (float) $c['boost_target_c'] : $absoluteMax;
+            if ($bt > $absoluteMax) {
+                $bt = $absoluteMax;
+            }
+            if ($s['temp_upper'] < $bt) {
+                return self::fill($r, 'heat', $bt, 'MANUAL',
+                    'manual_boost', 6, true,
+                    'Активний ручний boost до ' . self::fmt($bt) . ' °C.');
+            }
+        }
+
+        // --- Level 7: comfort minimum ----------------------------------------
+        if ($s['temp_upper'] < $comfortMin) {
+            return self::fill($r, 'heat', $comfortMin, 'MANUAL',
+                'comfort_minimum', 7, true,
+                'Температура нижча за комфортний мінімум ' . self::fmt($comfortMin) . ' °C — гріємо.');
+        }
+
+        // --- Level 8a: solar surplus by battery SOC --------------------------
+        // Daytime + SOC reached high threshold => surplus, heat until low thr.
+        $surplus = self::evalSolarSurplus($s, $c);
+        if ($surplus['active']) {
+            $st = $solarTarget;
+            if ($st > $absoluteMax) {
+                $st = $absoluteMax;
+            }
+            if ($s['temp_upper'] < $st) {
+                return self::fill($r, 'heat', $st, 'MANUAL',
+                    'solar_surplus', 8, true,
+                    $surplus['human']);
+            }
+            return self::fill($r, 'hold', $st, null,
+                'solar_surplus_satisfied', 8, false,
+                'Сонячний надлишок є, але бойлер уже прогрітий до цілі.');
+        }
+
+        // --- Level 8b: cheap tariff window -----------------------------------
+        if (!empty($s['tariff_active'])) {
+            if ($s['temp_upper'] < $nightTarget) {
+                return self::fill($r, 'heat', $nightTarget, 'MANUAL',
+                    'cheap_tariff', 8, true,
+                    'Дешевий тариф — гріємо до нічної цілі ' . self::fmt($nightTarget) . ' °C.');
+            }
+            return self::fill($r, 'hold', $nightTarget, null,
+                'cheap_tariff_satisfied', 8, false,
+                'Дешевий тариф, але нічну ціль уже досягнуто.');
+        }
+
+        // Nothing to do: comfort satisfied, day tariff, no surplus.
+        return self::fill($r, 'hold', null, null,
+            'idle_comfort_ok', 8, false,
+            'Нема підстав гріти: комфорт забезпечено, тариф денний, надлишку нема.');
+    }
+
+    /**
+     * Solar surplus rule. Requires daytime and a valid SOC that reached the
+     * high threshold. Hysteresis: once active, stays active until SOC drops to
+     * the low threshold (state carried in snapshot as surplus_latched).
+     */
+    private static function evalSolarSurplus($s, $c)
+    {
+        $out = array('active' => false, 'human' => '');
+        if (empty($c['solar_surplus_enabled'])) {
+            return $out;
+        }
+        if (empty($s['is_daytime'])) {
+            return $out;
+        }
+        if (!isset($s['battery_soc']) || $s['battery_soc'] === null) {
+            return $out;
+        }
+        $soc = (float) $s['battery_soc'];
+        $hi = isset($c['surplus_soc_high']) ? (float) $c['surplus_soc_high'] : 100.0;
+        $lo = isset($c['surplus_soc_low'])  ? (float) $c['surplus_soc_low']  : 98.0;
+
+        $latched = !empty($s['surplus_latched']);
+        if (!$latched && $soc >= $hi) {
+            $latched = true;
+        }
+        if ($latched && $soc <= $lo) {
+            $latched = false;
+        }
+        if ($latched) {
+            $out['active'] = true;
+            $out['human'] = 'Надлишок генерації: SOC батареї ' . self::fmt($soc)
+                . '% (поріг ' . self::fmt($hi) . '%). Витрачаємо надлишок на нагрів води, доки SOC не впаде до '
+                . self::fmt($lo) . '%.';
+        }
+        return $out;
+    }
+
+    private static function fill($r, $action, $target, $mode, $reason, $level, $allowed, $human)
+    {
+        $r['action'] = $action;
+        $r['target_c'] = $target;
+        $r['mode'] = $mode;
+        $r['reason'] = $reason;
+        $r['priority_level'] = $level;
+        $r['allowed'] = $allowed;
+        $r['reason_human'] = $human;
+        return $r;
+    }
+
+    private static function fmt($n)
+    {
+        return rtrim(rtrim(number_format((float) $n, 1, '.', ''), '0'), '.');
+    }
+}

@@ -1,0 +1,103 @@
+<?php
+/**
+ * PolicyEngine: interprets the power source signal and SOC into a safe
+ * 'grid' | 'battery' | 'unknown' verdict, WITHOUT assuming polarity.
+ *
+ * The admin explicitly sets battery_active_value (what value of the bound
+ * property means "running on battery"). Null / unparyseable / stale => unknown
+ * (never silently 'grid').
+ *
+ * PHP 7.3 compatible.
+ *
+ * @package drazice_smart
+ * @license MIT
+ */
+
+namespace DraziceSmart;
+
+class PolicyEngine
+{
+    /**
+     * @param mixed $rawBatteryActive  raw value of bound property (e.g. BatteryMode.active)
+     * @param mixed $activeValue       configured value meaning "on battery"
+     * @param int|null $sourceUpdatedUtc  when the producer last changed it (or null)
+     * @param int   $nowUtc
+     * @param int   $freshnessTtlS    0 = freshness not enforced (not provable)
+     * @return array source, valid(bool), human, raw
+     */
+    public static function powerSource($rawBatteryActive, $activeValue, $sourceUpdatedUtc, $nowUtc, $freshnessTtlS)
+    {
+        $out = array(
+            'source' => 'unknown',
+            'valid'  => false,
+            'raw'    => $rawBatteryActive,
+            'human'  => '',
+        );
+
+        if ($rawBatteryActive === null || $rawBatteryActive === '') {
+            $out['human'] = 'Сигнал джерела живлення відсутній — вважаємо «невідомо».';
+            return $out;
+        }
+
+        // Freshness: only enforce if a TTL is configured AND we have a timestamp.
+        if ($freshnessTtlS > 0 && $sourceUpdatedUtc !== null) {
+            if (($nowUtc - (int) $sourceUpdatedUtc) > $freshnessTtlS) {
+                $out['human'] = 'Сигнал джерела застарів (freshness перевищено) — «невідомо».';
+                return $out;
+            }
+        }
+
+        // Normalise both sides to string for a robust equality test.
+        $rawNorm = self::norm($rawBatteryActive);
+        $actNorm = self::norm($activeValue);
+
+        if ($actNorm === '') {
+            // Admin has not confirmed polarity yet.
+            $out['human'] = 'Полярність сигналу не підтверджено адміністратором — «невідомо».';
+            return $out;
+        }
+
+        if ($rawNorm === $actNorm) {
+            $out['source'] = 'battery';
+            $out['valid'] = true;
+            $out['human'] = 'Живлення від батарей (сире значення «' . $rawNorm . '» = активне).';
+        } else {
+            $out['source'] = 'grid';
+            $out['valid'] = true;
+            $out['human'] = 'Живлення від мережі (сире значення «' . $rawNorm . '» ≠ активного «' . $actNorm . '»).';
+        }
+        return $out;
+    }
+
+    private static function norm($v)
+    {
+        if (is_bool($v)) {
+            return $v ? '1' : '0';
+        }
+        $s = trim((string) $v);
+        $low = strtolower($s);
+        if ($low === 'true' || $low === 'on' || $low === 'yes') {
+            return '1';
+        }
+        if ($low === 'false' || $low === 'off' || $low === 'no') {
+            return '0';
+        }
+        return $s;
+    }
+
+    /** Validate a SOC value (0..100). Returns float or null. */
+    public static function validSoc($raw)
+    {
+        if ($raw === null || $raw === '' || !is_numeric($raw)) {
+            return null;
+        }
+        $f = (float) $raw;
+        if (is_nan($f) || is_infinite($f)) {
+            return null;
+        }
+        if ($f < 0.0 || $f > 100.0) {
+            return null;
+        }
+        return $f;
+    }
+}

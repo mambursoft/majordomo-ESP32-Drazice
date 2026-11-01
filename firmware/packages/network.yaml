@@ -1,0 +1,30 @@
+# ---- Мережа: Wi-Fi + резервна точка доступу --------------------------------
+# ESP32 IP невідомий заздалегідь. Рекомендовано зробити DHCP reservation на
+# роутері за MAC ESP32 (щоб адреса була сталою) АБО знайти ESP у мережі через
+# майстер у модулі MajorDoMo (вкладка «Пристрої»). Не вигадуйте .141 як вільну.
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Не перезавантажувати пристрій через проблеми Wi-Fi надто агресивно:
+  # втрата Wi-Fi не повинна скидати локальний cooldown/стан guard.
+  reboot_timeout: 0s
+  power_save_mode: none
+
+  # Резервна точка доступу для первинного налаштування, якщо Wi-Fi недоступний.
+  ap:
+    ssid: "${friendly_name} Setup"
+    password: !secret ap_password
+
+# Captive portal з простим паролем і відкритим web OTA у production НЕ вмикаємо.
+# captive_portal:   # лише свідомо під час первинного налаштування
+
+# BLE-трекер потрібен smartboiler-компоненту (ble_client).
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+# Один BLE-клієнт до бойлера (бойлер тримає лише одне з'єднання одночасно).
+ble_client:
+  - mac_address: !secret boiler_ble_mac
+    id: boiler_ble

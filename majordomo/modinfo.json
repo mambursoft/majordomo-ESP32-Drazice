@@ -1,0 +1,15 @@
+{
+  "name": "drazice_smart",
+  "title": "Drazice SMART Boiler",
+  "module_name": "drazice_smart",
+  "version": "1.0.0",
+  "category": "devices",
+  "author": "mambursoft",
+  "support": "https://github.com/mambursoft/majordomo-ESP32-Drazice",
+  "repository": "https://github.com/mambursoft/majordomo-ESP32-Drazice",
+  "min_php": "7.3",
+  "tested_php": "8.2",
+  "description": "Моніторинг і безпечне керування бойлерами Drazice SMART (OKHE 125 SMART) через ESP32/BLE по Wi-Fi. Без MQTT і без обов'язкового Home Assistant. Детермінований планувальник: нічний тариф, сонячний надлишок за SOC батареї, обмеження тривалого нагріву, cooldown, lease, boost. Безпечно за замовчуванням: стартує в режимі лише моніторинг. Опційне визначення присутності за Wi-Fi/BLE.",
+  "description_en": "Monitoring and safe control of Drazice SMART water heaters (OKHE 125 SMART) via ESP32/BLE over Wi-Fi. No MQTT, no mandatory Home Assistant. Deterministic planner: night tariff, solar surplus by battery SOC, continuous-heat limit, cooldown, lease, boost. Safe by default: starts in monitor-only mode. Optional Wi-Fi/BLE presence detection.",
+  "description_ru": "Мониторинг и безопасное управление бойлерами Drazice SMART (OKHE 125 SMART) через ESP32/BLE по Wi-Fi. Без MQTT и без обязательного Home Assistant. Детерминированный планировщик: ночной тариф, солнечный избыток по SOC батареи, ограничение длительного нагрева, cooldown, lease, boost. Безопасно по умолчанию: стартует в режиме только мониторинг. Опциональное определение присутствия по Wi-Fi/BLE."
+}

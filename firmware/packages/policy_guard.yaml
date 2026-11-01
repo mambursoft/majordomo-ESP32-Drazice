@@ -1,0 +1,97 @@
+# ---- Локальний arbiter команд (boiler_guard) --------------------------------
+# Зовні доступні ЛИШЕ ці guarded entities. Вони делегують у boiler_guard, який:
+#   * веде облік тривалого фактичного нагріву (за Heat=true) і cooldown;
+#   * вимагає чинного lease від MajorDoMo для нових пусків;
+#   * робить readback бажаного/підтвердженого стану;
+#   * забороняє обхід cooldown через reboot (монотонний годинник + durable state).
+# Прямі entity бойлера (boiler_mode/thermostat) — internal (див. smartboiler.yaml).
+
+boiler_guard:
+  id: boiler_guard_component
+  smartboiler_id: boiler
+  mode_select_id: boiler_mode
+  thermostat_id: boiler_thermostat
+  heating_sensor_id: boiler_heating
+  max_continuous_heat_s: ${max_continuous_heat_s}
+  min_pause_s: ${min_pause_s}
+  heat_false_debounce_s: ${heat_false_debounce_s}
+  lease_ttl_s: ${lease_ttl_s}
+  command_timeout_s: ${command_timeout_s}
+
+# Guarded setpoint (запит бажаної температури). Проходить через guard.
+number:
+  - platform: template
+    name: "Boiler Requested Target"
+    id: boiler_requested_target
+    min_value: 40
+    max_value: 80
+    step: 1
+    optimistic: false
+    lambda: 'return id(boiler_guard_component).get_requested_target();'
+    set_action:
+      - lambda: 'id(boiler_guard_component).request_target(x);'
+
+# Guarded режим. Лише дозволені значення.
+select:
+  - platform: template
+    name: "Boiler Requested Mode"
+    id: boiler_requested_mode
+    options: ["ANTIFREEZE", "SMART", "PROG", "MANUAL"]
+    optimistic: false
+    lambda: 'return id(boiler_guard_component).get_requested_mode();'
+    set_action:
+      - lambda: 'id(boiler_guard_component).request_mode(x);'
+
+# Lease heartbeat від MajorDoMo. POST сюди періодично поновлює дозвіл.
+button:
+  - platform: template
+    name: "Boiler Lease Renew"
+    id: boiler_lease_renew
+    on_press:
+      - lambda: 'id(boiler_guard_component).renew_lease();'
+  - platform: template
+    name: "Boiler Release BLE"
+    id: boiler_release_ble
+    on_press:
+      - lambda: 'id(boiler_guard_component).release_ble();'
+  - platform: template
+    name: "Boiler Reconnect BLE"
+    id: boiler_reconnect_ble
+    on_press:
+      - lambda: 'id(boiler_guard_component).reconnect_ble();'
+
+# Діагностика guard — назовні для UI «чому гріє / чому ні».
+text_sensor:
+  - platform: template
+    name: "Boiler Guard State"
+    id: boiler_guard_state
+    update_interval: 10s
+    lambda: 'return id(boiler_guard_component).get_state_text();'
+  - platform: template
+    name: "Boiler Guard Reason"
+    id: boiler_guard_reason
+    update_interval: 10s
+    lambda: 'return id(boiler_guard_component).get_reason_text();'
+
+sensor:
+  - platform: template
+    name: "Boiler Continuous Heat Seconds"
+    id: boiler_cont_heat_s
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return (float) id(boiler_guard_component).get_continuous_heat_seconds();'
+  - platform: template
+    name: "Boiler Cooldown Remaining"
+    id: boiler_cooldown_remaining_s
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return (float) id(boiler_guard_component).get_cooldown_remaining_s();'
+  - platform: template
+    name: "Boiler Lease Remaining"
+    id: boiler_lease_remaining_s
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: 'return (float) id(boiler_guard_component).get_lease_remaining_s();'

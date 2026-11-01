@@ -1,0 +1,59 @@
+# ---- Інтеграція з бойлером Drazice через upstream smartboiler --------------
+# Назви entity зафіксовано відповідно до __init__.py upstream (pinned commit).
+# ДЖЕРЕЛО ФАКТІВ (прочитано з коду upstream):
+#   temp1/temp2  -> sensor (°C)
+#   mode         -> select: ANTIFREEZE / SMART / PROG / MANUAL   (STOP недоступний)
+#   hdo_low_tariff -> binary_sensor "HDO"
+#   heat_on      -> binary_sensor "Heating"  (= HSRCSTATE==1)
+#   thermostat   -> climate, setpoint 40..80 °C (MIN_TEMP/MAX_TEMP у коді)
+#   consumption  -> sensor "Energy" (kWh, total_increasing)
+#   pin          -> number "Pairing PIN" 1111..9999 (вводити лише у стані Require PIN)
+#   state        -> text_sensor "State" (Connected/Require PIN/…)
+#   version      -> text_sensor "Version" (fw;board;S/N)
+#   b_name       -> text_sensor "Name"
+
+smartboiler:
+  - ble_client_id: boiler_ble
+    id: boiler
+    update_interval: 60s
+    temp1:
+      id: boiler_temp_lower
+      name: "Boiler Temp Lower"
+    temp2:
+      id: boiler_temp_upper
+      name: "Boiler Temp Upper"
+    hdo_low_tariff:
+      id: boiler_hdo
+      name: "Boiler HDO"
+    heat_on:
+      id: boiler_heating
+      name: "Boiler Heating"
+      # Передаємо фактичний Heat у guard — лічильник тривалого нагріву рахується
+      # за ПІДТВЕРДЖЕНИМ Heat=true, а не за часом після HTTP-запиту.
+      on_state:
+        then:
+          - lambda: 'id(boiler_guard_component).on_heat_report(x);'
+    mode:
+      id: boiler_mode
+      name: "Boiler Mode (direct)"
+      # Прямий select лишаємо internal, щоб назовні не можна було обійти guard.
+      internal: true
+    thermostat:
+      id: boiler_thermostat
+      name: "Boiler Thermostat (direct)"
+      internal: true
+    consumption:
+      id: boiler_energy
+      name: "Boiler Energy"
+    pin:
+      id: boiler_pin
+      name: "Boiler Pairing PIN"
+    state:
+      id: boiler_state
+      name: "Boiler State"
+    version:
+      id: boiler_version
+      name: "Boiler Version"
+    b_name:
+      id: boiler_bname
+      name: "Boiler Name"
