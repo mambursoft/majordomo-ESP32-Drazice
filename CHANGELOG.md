@@ -3,6 +3,17 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.3.2] — 2026-11-03
+
+### Виправлено
+
+- **ESP32 розривав HTTP-з'єднання (`Connection reset by peer`)** на кожен запит
+  до web_server. Причина: `web_server: version: 3` з `local: true` вбудовує
+  важкий JS, який на ESP32 + Arduino (ESPAsyncWebServer) валить з'єднання/краш
+  ще до обробки auth. Для машинного транспорту (PHP-модуль читає REST) важка
+  сторінка не потрібна — перейшли на **`web_server: version: 2`** (легкий,
+  стабільний REST/SSE). Flash зменшився (~45.8%). Образ перезібрано (SUCCESS).
+
 ## [1.3.1] — 2026-11-01
 
 ### Додано

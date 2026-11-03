@@ -69,13 +69,14 @@ packages:
   policy:      !include packages/policy_guard.yaml
   status_led:  !include packages/status_led.yaml
 
-# Локальна вебсторінка без CDN, з автентифікацією. basic/ digest — перевірити у
-# вибраній версії ESPHome (див. docs/api-contract). HTTP у LAN НЕ шифрується.
+# REST-інтерфейс для PHP-модуля. Транспорт машинний (читаємо /sensor/..,
+# /number/../set), важка вебсторінка НЕ потрібна. version: 2 — найлегший і
+# найстабільніший на ESP32+Arduino варіант (v3 з local:true вбудовує важкий JS,
+# що на ESPAsyncWebServer спричиняє "Connection reset by peer"/краш під auth).
+# HTTP у LAN НЕ шифрується; доступ лише з довірених вузлів.
 web_server:
   port: 80
-  version: 3
-  # local: true -> JS/CSS вбудовано у прошивку, без завантаження з CDN (вимога ТЗ).
-  local: true
+  version: 2
   auth:
     username: !secret web_username
     password: !secret web_password
