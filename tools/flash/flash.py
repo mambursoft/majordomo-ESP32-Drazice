@@ -4,11 +4,14 @@ Flashing helper for the WeAct ESP32 boiler firmware.
 
 Thin, SAFE wrapper around esptool 4.x. It NEVER erases by default (erase wipes
 pairing UUID/secrets), always reads chip_id + flash_id first, and takes a full
-backup before any write. The actual firmware must be built separately with
-`esphome compile` and merged; this script only verifies and flashes.
+backup before any write. Build the image first with
+`python tools/release/build_firmware.py` (it runs `esphome compile` and copies
+the merged firmware.factory.bin to the repo root). This script only verifies
+and flashes; it also auto-locates the image in the ESPHome build dir if needed.
 
-Pinned esptool 4.x (underscore subcommands) — see requirements-flash.lock.
-Do NOT mix with esptool 5.x (hyphenated) commands.
+RUN THIS IN .venv-flash (pinned esptool 4.x, underscore subcommands — see
+requirements-flash.lock). Do NOT run it in .venv-build (that has esptool 5.x);
+never mix 4.x and 5.x in the flashing flow.
 
 Usage:
   python tools/flash/flash.py --port COM7 info
@@ -19,12 +22,34 @@ Usage:
 import sys
 import argparse
 import subprocess
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def esptool(port, *args):
     cmd = [sys.executable, "-m", "esptool", "--chip", "esp32", "--port", port] + list(args)
     print("+ " + " ".join(cmd))
     return subprocess.run(cmd)
+
+
+def resolve_image(image):
+    """Find the image: as given, relative to repo root, or in the ESPHome build dir."""
+    p = Path(image)
+    if p.is_file():
+        return str(p.resolve())
+    rooted = REPO_ROOT / image
+    if rooted.is_file():
+        return str(rooted.resolve())
+    # Fall back to the ESPHome build output.
+    hits = list((REPO_ROOT / "firmware" / ".esphome" / "build").glob("*/.pioenvs/*/" + p.name))
+    if hits:
+        return str(hits[0].resolve())
+    print("ERROR: image '%s' not found." % image)
+    print("Looked in: current dir, repo root (%s), and the ESPHome build dir." % REPO_ROOT)
+    print("Build it first:  python tools/release/build_firmware.py")
+    print("(that copies firmware.factory.bin to the repo root).")
+    sys.exit(2)
 
 
 def main():
@@ -63,8 +88,10 @@ def main():
             print("Refusing to write without --i-understand-this-writes-flash.")
             print("Take a backup first:  python tools/flash/flash.py --port <port> backup backup-private.bin")
             sys.exit(2)
-        print("Writing merged factory image. Ensure address matches flash-manifest.json.")
-        esptool(args.port, "--baud", args.baud, "write_flash", args.address, args.image)
+        image_path = resolve_image(args.image)
+        print("Writing merged factory image: %s" % image_path)
+        print("Address %s (merged ESPHome factory image base is 0x0)." % args.address)
+        esptool(args.port, "--baud", args.baud, "write_flash", args.address, image_path)
         return
 
 

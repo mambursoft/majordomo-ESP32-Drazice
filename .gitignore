@@ -10,6 +10,8 @@ firmware/secrets.yaml
 backup-private.bin
 *.factory.bin
 *.ota.bin
+# flash-manifest.json описує конкретний персональний образ (SHA) — не комітимо
+flash-manifest.json
 firmware/.esphome/
 firmware/build/
 
