@@ -233,6 +233,48 @@ $dictionary = array(
     'DS_SAVED'           => 'Збережено',
     'DS_ERROR_CSRF'      => 'Помилка безпеки форми (CSRF). Оновіть сторінку і спробуйте ще раз.',
     'DS_RELATED_OBJECTS' => 'Пов\'язані об\'єкти',
+
+    // --- UX rebuild (FEAT-002): new tabs ---
+    'DS_TAB_SETUP'       => 'Підключення',
+    'DS_TAB_POLICY'      => 'Політика',
+    'DS_TAB_ADVANCED'    => 'Додатково',
+
+    // Status: connection-health badge
+    'DS_ST_CONN_OK'      => 'ESP32 на зв\'язку',
+    'DS_ST_CONN_PIN'     => 'Потрібен PIN для пейрінгу',
+    'DS_ST_CONN_NO'      => 'ESP32 недоступний',
+
+    // Setup: PIN pairing
+    'DS_SETUP_PIN_HINT'       => 'Вводьте PIN з екрана бойлера (1–4 цифри, лідируючі нулі зберігаються, напр. 0692). PIN ніде не зберігається.',
+    'DS_SETUP_PIN_BADGE_REQ'  => 'Потрібен PIN',
+    'DS_SETUP_PIN_BADGE_OK'   => 'З\'єднано',
+    'DS_SETUP_PIN_BADGE_MUTED' => 'Стан',
+    'DS_SETUP_PIN_ACCEPTED'   => 'PIN прийнято — бойлер під\'єднано.',
+    'DS_SETUP_PIN_SENT'       => 'PIN надіслано. Бойлер ще не підтвердив з\'єднання — зачекайте кілька секунд і оновіть сторінку.',
+    'DS_SETUP_PIN_ESP_DOWN'   => 'Не вдалося надіслати PIN: ESP32 недоступний. Перевірте підключення на цій вкладці.',
+    'DS_SETUP_PIN_BAD'        => 'Невірний формат PIN: потрібно 1–4 цифри.',
+
+    // Setup: probe result
+    'DS_PROBE_BOILER'    => 'Це наш бойлер:',
+    'DS_PROBE_REACHABLE' => 'ESPHome-пристрій відповідає (але це не бойлер):',
+    'DS_PROBE_UNREACHABLE' => 'Адреса недоступна або не відповідає:',
+
+    // Control: danger zone + dry-run toggle
+    'DS_CTL_DANGER_ZONE'      => 'Небезпечна зона',
+    'DS_CTL_DRYRUN_TITLE'     => 'Режим запису (dry-run)',
+    'DS_CTL_DRYRUN_TOGGLE_ON' => 'Увімкнути реальний запис (вимкнути dry-run)',
+    'DS_CTL_DRYRUN_TOGGLE_OFF' => 'Повернути dry-run (лише розрахунки)',
+
+    // Policy sub-headings
+    'DS_POLICY_ENERGY'   => 'Енергополітика',
+    'DS_POLICY_TARIFF'   => 'Тариф',
+    'DS_POLICY_FORECAST' => 'Джерела прогнозу',
+
+    // Advanced
+    'DS_MAX_HOSTS'       => 'Скільки адрес перевіряти',
+    'DS_SCAN_NEED_BASE_IP' => 'Вкажіть базову IP-адресу мережі (напр. 172.16.0.1) — автовизначення не спрацювало.',
+    'DS_BLE_OPTIONAL'    => 'Сканер BLE необов\'язковий і зараз недоступний на цій прошивці. Зазвичай він не потрібен — бойлер підключається за збереженим MAC.',
+    'DS_SD_USUALLY_EMPTY' => 'Зазвичай залиште порожнім. Заповнюйте карту, лише якщо знаєте, навіщо це вам.',
 );
 
 foreach ($dictionary as $k => $v) {

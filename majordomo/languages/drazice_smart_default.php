@@ -215,6 +215,52 @@ $dictionary = array(
     'DS_SAVED'           => 'Saved',
     'DS_ERROR_CSRF'      => 'Form security error (CSRF). Refresh the page and try again.',
     'DS_RELATED_OBJECTS' => 'Related objects',
+
+    // --- UX rebuild (FEAT-002): new tabs ---
+    'DS_TAB_SETUP'       => 'Setup',
+    'DS_TAB_POLICY'      => 'Policy',
+    'DS_TAB_ADVANCED'    => 'Advanced',
+
+    // Tariff minute/hour short labels (were missing from the deployed set)
+    'DS_HOUR_SHORT'      => 'h',
+    'DS_MIN_SHORT'       => 'min',
+
+    // Status: connection-health badge
+    'DS_ST_CONN_OK'      => 'ESP32 connected',
+    'DS_ST_CONN_PIN'     => 'Pairing PIN required',
+    'DS_ST_CONN_NO'      => 'ESP32 unreachable',
+
+    // Setup: PIN pairing
+    'DS_SETUP_PIN_HINT'       => 'Enter the PIN shown on the boiler (1-4 digits, leading zeros preserved, e.g. 0692). The PIN is never stored.',
+    'DS_SETUP_PIN_BADGE_REQ'  => 'PIN required',
+    'DS_SETUP_PIN_BADGE_OK'   => 'Connected',
+    'DS_SETUP_PIN_BADGE_MUTED' => 'State',
+    'DS_SETUP_PIN_ACCEPTED'   => 'PIN accepted - boiler connected.',
+    'DS_SETUP_PIN_SENT'       => 'PIN sent. The boiler has not confirmed the connection yet - wait a few seconds and refresh.',
+    'DS_SETUP_PIN_ESP_DOWN'   => 'Could not send the PIN: the ESP32 is unreachable. Check the connection on this tab.',
+    'DS_SETUP_PIN_BAD'        => 'Invalid PIN format: 1-4 digits required.',
+
+    // Setup: probe result
+    'DS_PROBE_BOILER'    => 'This is our boiler:',
+    'DS_PROBE_REACHABLE' => 'An ESPHome device responds (but it is not the boiler):',
+    'DS_PROBE_UNREACHABLE' => 'Address is unreachable or did not respond:',
+
+    // Control: danger zone + dry-run toggle
+    'DS_CTL_DANGER_ZONE'      => 'Danger zone',
+    'DS_CTL_DRYRUN_TITLE'     => 'Write mode (dry-run)',
+    'DS_CTL_DRYRUN_TOGGLE_ON' => 'Enable real writes (turn off dry-run)',
+    'DS_CTL_DRYRUN_TOGGLE_OFF' => 'Restore dry-run (calculations only)',
+
+    // Policy sub-headings
+    'DS_POLICY_ENERGY'   => 'Energy policy',
+    'DS_POLICY_TARIFF'   => 'Tariff',
+    'DS_POLICY_FORECAST' => 'Forecast sources',
+
+    // Advanced
+    'DS_MAX_HOSTS'       => 'How many addresses to probe',
+    'DS_SCAN_NEED_BASE_IP' => 'Provide a base network IP (e.g. 172.16.0.1) - auto-detection failed.',
+    'DS_BLE_OPTIONAL'    => 'The BLE scanner is optional and is not available on this firmware. It is usually not needed - the boiler connects by its stored MAC.',
+    'DS_SD_USUALLY_EMPTY' => 'Usually leave empty. Fill in the map only if you know why you need it.',
 );
 
 foreach ($dictionary as $k => $v) {

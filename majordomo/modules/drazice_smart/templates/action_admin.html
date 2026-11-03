@@ -27,118 +27,32 @@
   </div>
 
   <ul class="nav nav-tabs" style="margin-bottom:20px;">
-    <li class="[#if TAB="devices"#]active[#endif#]"><a href="?tab=devices"><span class="glyphicon glyphicon-hdd"></span> <#LANG_DS_TAB_DEVICES#></a></li>
     <li class="[#if TAB="status"#]active[#endif#]"><a href="?tab=status"><span class="glyphicon glyphicon-dashboard"></span> <#LANG_DS_TAB_STATUS#></a></li>
+    <li class="[#if TAB="setup"#]active[#endif#]"><a href="?tab=setup"><span class="glyphicon glyphicon-hdd"></span> <#LANG_DS_TAB_SETUP#></a></li>
     <li class="[#if TAB="control"#]active[#endif#]"><a href="?tab=control"><span class="glyphicon glyphicon-sliders"></span> <#LANG_DS_TAB_CONTROL#></a></li>
-    <li class="[#if TAB="energy"#]active[#endif#]"><a href="?tab=energy"><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_TAB_ENERGY#></a></li>
-    <li class="[#if TAB="tariff"#]active[#endif#]"><a href="?tab=tariff"><span class="glyphicon glyphicon-time"></span> <#LANG_DS_TAB_TARIFF#></a></li>
-    <li class="[#if TAB="forecast"#]active[#endif#]"><a href="?tab=forecast"><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_TAB_FORECAST#></a></li>
-    <li class="[#if TAB="presence"#]active[#endif#]"><a href="?tab=presence"><span class="glyphicon glyphicon-user"></span> <#LANG_DS_TAB_PRESENCE#></a></li>
-    <li class="[#if TAB="simpledev"#]active[#endif#]"><a href="?tab=simpledev"><span class="glyphicon glyphicon-th-large"></span> <#LANG_DS_TAB_SIMPLEDEV#></a></li>
+    <li class="[#if TAB="policy"#]active[#endif#]"><a href="?tab=policy"><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_TAB_POLICY#></a></li>
     <li class="[#if TAB="log"#]active[#endif#]"><a href="?tab=log"><span class="glyphicon glyphicon-list-alt"></span> <#LANG_DS_TAB_LOG#></a></li>
     <li class="[#if TAB="diag"#]active[#endif#]"><a href="?tab=diag"><span class="glyphicon glyphicon-wrench"></span> <#LANG_DS_TAB_DIAG#></a></li>
+    <li class="[#if TAB="advanced"#]active[#endif#]"><a href="?tab=advanced"><span class="glyphicon glyphicon-cog"></span> <#LANG_DS_TAB_ADVANCED#></a></li>
   </ul>
-
-  <!-- ================= DEVICES ================= -->
-  [#if TAB="devices"#]
-  <p class="text-muted"><#LANG_DS_DEV_INTRO#></p>
-  <form method="post" action="?tab=devices">
-    <input type="hidden" name="op" value="save_settings">
-    <input type="hidden" name="csrf" value="[#CSRF#]">
-    <div class="row">
-      <div class="col-md-4 form-group">
-        <label><#LANG_DS_ESP_HOST#></label>
-        <input class="form-control" name="ESP_HOST" value="[#CFG_ESP_HOST#]" placeholder="172.16.0.150">
-        <small class="text-muted"><#LANG_DS_H_ESP_HOST#></small>
-        [#if HOST_OK="1"#]<div class="text-success" style="font-size:12px;">✔ <#LANG_DS_HOST_OK#></div>
-        [#else#]<div class="text-danger" style="font-size:12px;"><#LANG_DS_HOST_INVALID#> [#HOST_REASON#]</div>[#endif#]
-      </div>
-      <div class="col-md-2 form-group">
-        <label><#LANG_DS_ESP_PORT#></label>
-        <input class="form-control" name="ESP_PORT" value="[#CFG_ESP_PORT#]">
-      </div>
-      <div class="col-md-3 form-group">
-        <label><#LANG_DS_ESP_USER#></label>
-        <input class="form-control" name="ESP_USER" value="[#CFG_ESP_USER#]">
-      </div>
-      <div class="col-md-3 form-group">
-        <label><#LANG_DS_ESP_PASS#></label>
-        <input class="form-control" type="password" name="ESP_PASS" value="[#CFG_ESP_PASS#]">
-        <small class="text-muted"><#LANG_DS_H_ESP_PASS#></small>
-      </div>
-    </div>
-    <div class="checkbox"><label><input type="checkbox" name="ESP_DIGEST" value="1" [#if CFG_ESP_DIGEST="1"#]checked[#endif#]> <#LANG_DS_ESP_DIGEST#></label></div>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
-  </form>
-
-  <hr>
-  <h4><#LANG_DS_FIND_ESP#></h4>
-  <p class="text-muted"><#LANG_DS_SCAN_HINT#></p>
-  <form method="post" action="?tab=devices" class="form-inline" style="margin-bottom:10px;">
-    <input type="hidden" name="op" value="probe_host">
-    <input type="hidden" name="csrf" value="[#CSRF#]">
-    <input class="form-control" name="host" placeholder="172.16.0.150">
-    <button class="btn btn-default" type="submit"><#LANG_DS_PROBE_HOST#></button>
-  </form>
-  <form method="post" action="?tab=devices" class="form-inline">
-    <input type="hidden" name="op" value="scan_network">
-    <input type="hidden" name="csrf" value="[#CSRF#]">
-    <input class="form-control" name="base_ip" placeholder="172.16.0.1">
-    <input class="form-control" name="max_hosts" value="64" style="width:90px;">
-    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></button>
-  </form>
-  [#if SCAN_RESULT#]
-    <div class="panel panel-default" style="margin-top:12px;"><div class="panel-heading"><#LANG_DS_SCAN_FOUND#></div>
-      <table class="table table-condensed"><tbody>
-      [#begin SCAN_RESULT#]
-        <tr><td><code>[#host#]</code></td><td>[#if is_boiler="1"#]<span class="label label-success"><#LANG_DS_SCAN_IS_BOILER#></span>[#else#]<span class="label label-default"><#LANG_DS_SCAN_ESPHOME#></span>[#endif#]</td></tr>
-      [#end SCAN_RESULT#]
-      </tbody></table>
-    </div>
-  [#endif#]
-
-  <hr>
-  <h4><#LANG_DS_BLE_TITLE#></h4>
-  <p class="text-muted"><#LANG_DS_BLE_HINT#></p>
-  [#if SELECTED_BLE_MAC#]
-    <p><#LANG_DS_BLE_SELECTED#>: <code>[#SELECTED_BLE_MAC#]</code></p>
-  [#endif#]
-  <form method="post" action="?tab=devices" class="form-inline" style="margin-bottom:10px;">
-    <input type="hidden" name="op" value="ble_scan_clear"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_BLE_CLEAR#></button>
-  </form>
-  [#if BLE_AVAILABLE="1"#]
-    [#if BLE_HAS_DEVICES="1"#]
-      <table class="table table-condensed table-striped">
-        <thead><tr><th>MAC</th><th><#LANG_DS_BLE_NAME#></th><th>RSSI</th><th></th></tr></thead>
-        <tbody>
-        [#begin BLE_DEVICES#]
-          <tr [#if BOILER="1"#]class="success"[#endif#]>
-            <td><code>[#MAC#]</code> [#if BOILER="1"#]<span class="label label-success"><#LANG_DS_BLE_IS_BOILER#></span>[#endif#]</td>
-            <td>[#NAME#]</td>
-            <td>[#RSSI#] dBm</td>
-            <td>
-              <form method="post" action="?tab=devices" style="margin:0;">
-                <input type="hidden" name="op" value="select_boiler"><input type="hidden" name="csrf" value="[#CSRF#]">
-                <input type="hidden" name="mac" value="[#MAC#]">
-                <button class="btn btn-xs btn-primary" type="submit"><#LANG_DS_BLE_CHOOSE#></button>
-              </form>
-            </td>
-          </tr>
-        [#end BLE_DEVICES#]
-        </tbody>
-      </table>
-      <p class="text-muted" style="font-size:12px;"><#LANG_DS_BLE_AFTER_CHOOSE#></p>
-    [#else#]
-      <div class="alert alert-info"><#LANG_DS_BLE_EMPTY#></div>
-    [#endif#]
-  [#else#]
-    <div class="alert alert-warning"><#LANG_DS_BLE_UNAVAILABLE#></div>
-  [#endif#]
-  [#endif#]
 
   <!-- ================= STATUS ================= -->
   [#if TAB="status"#]
+  <div style="margin-bottom:12px;">
+    [#if HTTP_AVAILABLE="1"#]
+      [#if DG_BOILER_STATE="Connected"#]
+        <span class="label label-success" style="padding:6px 10px;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_ST_CONN_OK#></span>
+      [#else#]
+        [#if DG_BOILER_STATE="Require PIN"#]
+          <span class="label label-warning" style="padding:6px 10px;"><span class="glyphicon glyphicon-alert"></span> <#LANG_DS_ST_CONN_PIN#></span>
+        [#else#]
+          <span class="label label-success" style="padding:6px 10px;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_ST_CONN_OK#></span>
+        [#endif#]
+      [#endif#]
+    [#else#]
+      <span class="label label-danger" style="padding:6px 10px;"><span class="glyphicon glyphicon-remove-sign"></span> <#LANG_DS_ST_CONN_NO#></span>
+    [#endif#]
+  </div>
   <div class="row">
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_TEMP_UPPER#></div>
@@ -171,6 +85,104 @@
         &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: [#COOLDOWN_F#]
         &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: [#ENERGY_F#]
       </div>
+    </div>
+  </div>
+  [#endif#]
+
+  <!-- ================= SETUP ================= -->
+  [#if TAB="setup"#]
+  <p class="text-muted"><#LANG_DS_DEV_INTRO#></p>
+
+  <!-- (a) Connection settings (moved from old Devices tab) -->
+  <form method="post" action="?tab=setup">
+    <input type="hidden" name="op" value="save_settings">
+    <input type="hidden" name="csrf" value="[#CSRF#]">
+    <div class="row">
+      <div class="col-md-4 form-group">
+        <label><#LANG_DS_ESP_HOST#></label>
+        <input class="form-control" name="ESP_HOST" value="[#CFG_ESP_HOST#]" placeholder="172.16.0.150">
+        <small class="text-muted"><#LANG_DS_H_ESP_HOST#></small>
+        [#if HOST_OK="1"#]<div class="text-success" style="font-size:12px;">✔ <#LANG_DS_HOST_OK#></div>
+        [#else#]<div class="text-danger" style="font-size:12px;"><#LANG_DS_HOST_INVALID#> [#HOST_REASON#]</div>[#endif#]
+      </div>
+      <div class="col-md-2 form-group">
+        <label><#LANG_DS_ESP_PORT#></label>
+        <input class="form-control" name="ESP_PORT" value="[#CFG_ESP_PORT#]">
+      </div>
+      <div class="col-md-3 form-group">
+        <label><#LANG_DS_ESP_USER#></label>
+        <input class="form-control" name="ESP_USER" value="[#CFG_ESP_USER#]">
+      </div>
+      <div class="col-md-3 form-group">
+        <label><#LANG_DS_ESP_PASS#></label>
+        <input class="form-control" type="password" name="ESP_PASS" value="[#CFG_ESP_PASS#]">
+        <small class="text-muted"><#LANG_DS_H_ESP_PASS#></small>
+      </div>
+    </div>
+    <div class="checkbox"><label><input type="checkbox" name="ESP_DIGEST" value="1" [#if CFG_ESP_DIGEST="1"#]checked[#endif#]> <#LANG_DS_ESP_DIGEST#></label></div>
+    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
+  </form>
+
+  <hr>
+  <!-- (b) Probe one host + render PROBE_RESULT -->
+  <h4><#LANG_DS_PROBE_HOST#></h4>
+  <form method="post" action="?tab=setup" class="form-inline" style="margin-bottom:10px;">
+    <input type="hidden" name="op" value="probe_host">
+    <input type="hidden" name="csrf" value="[#CSRF#]">
+    <input class="form-control" name="host" placeholder="172.16.0.150">
+    <button class="btn btn-default" type="submit"><#LANG_DS_PROBE_HOST#></button>
+  </form>
+  [#if PROBE_CMD="1"#]
+    [#if PROBE_REACHABLE="1"#]
+      [#if PROBE_IS_BOILER="1"#]
+        <div class="alert alert-success"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_PROBE_BOILER#> <code>[#PROBE_HOST#]</code></div>
+      [#else#]
+        <div class="alert alert-info"><span class="glyphicon glyphicon-info-sign"></span> <#LANG_DS_PROBE_REACHABLE#> <code>[#PROBE_HOST#]</code></div>
+      [#endif#]
+    [#else#]
+      <div class="alert alert-warning"><span class="glyphicon glyphicon-remove-sign"></span> <#LANG_DS_PROBE_UNREACHABLE#> <code>[#PROBE_HOST#]</code></div>
+    [#endif#]
+  [#endif#]
+
+  <hr>
+  <!-- (c) PIN pairing (moved out of Diagnostics) -->
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><#LANG_DS_DG_PIN#></strong></div>
+    <div class="panel-body">
+      <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_DG_PIN_HINT#></div>
+      <p>
+        <#LANG_DS_DG_BOILER_STATE#>:
+        [#if DG_BOILER_STATE="Require PIN"#]
+          <span class="label label-warning"><#LANG_DS_SETUP_PIN_BADGE_REQ#></span>
+        [#else#]
+          [#if DG_BOILER_STATE="Connected"#]
+            <span class="label label-success"><#LANG_DS_SETUP_PIN_BADGE_OK#></span>
+          [#else#]
+            <span class="label label-default"><#LANG_DS_SETUP_PIN_BADGE_MUTED#> ([#DG_BOILER_STATE#])</span>
+          [#endif#]
+        [#endif#]
+      </p>
+      <form method="post" action="?tab=setup" class="form-inline" style="margin-bottom:10px;">
+        <input type="hidden" name="op" value="send_pin"><input type="hidden" name="csrf" value="[#CSRF#]">
+        <input class="form-control" type="text" inputmode="numeric" pattern="[0-9]{1,4}" maxlength="4" name="pin" placeholder="PIN">
+        <button class="btn btn-default" type="submit"><#LANG_DS_DG_SEND_PIN#></button>
+        <small class="text-muted" style="display:block;margin-top:4px;"><#LANG_DS_SETUP_PIN_HINT#></small>
+      </form>
+      [#if PIN_CMD="1"#]
+        [#if PIN_ACCEPTED="1"#]
+          <div class="alert alert-success" style="margin:0;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_SETUP_PIN_ACCEPTED#></div>
+        [#else#]
+          [#if PIN_BAD="1"#]
+            <div class="alert alert-warning" style="margin:0;"><#LANG_DS_SETUP_PIN_BAD#></div>
+          [#else#]
+            [#if PIN_ESP_DOWN="1"#]
+              <div class="alert alert-danger" style="margin:0;"><#LANG_DS_SETUP_PIN_ESP_DOWN#></div>
+            [#else#]
+              <div class="alert alert-info" style="margin:0;"><#LANG_DS_SETUP_PIN_SENT#></div>
+            [#endif#]
+          [#endif#]
+        [#endif#]
+      [#endif#]
     </div>
   </div>
   [#endif#]
@@ -222,23 +234,35 @@
     </div></div></div>
   </div>
 
-  <div class="panel [#if AUTOMATION_ENABLED="1"#]panel-warning[#else#]panel-success[#endif#]">
-    <div class="panel-heading"><strong><#LANG_DS_AUTO_TITLE#></strong></div>
+  <div class="panel panel-danger" style="border-width:2px;">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-warning-sign"></span> <#LANG_DS_CTL_DANGER_ZONE#></strong></div>
     <div class="panel-body">
-      <p>[#if DRY_RUN="1"#]<#LANG_DS_DRYRUN_ON#>[#else#]<#LANG_DS_DRYRUN_OFF#>[#endif#]</p>
       <div class="alert alert-warning" style="font-size:12px;"><#LANG_DS_AUTO_WARN#></div>
+
+      <h4><#LANG_DS_AUTO_TITLE#></h4>
+      <p>[#if AUTOMATION_ENABLED="1"#]<span class="label label-warning"><#LANG_DS_AUTO_STATE_ON#></span>[#else#]<span class="label label-success"><#LANG_DS_AUTO_STATE_OFF#></span>[#endif#]</p>
       [#if AUTOMATION_ENABLED="1"#]
         <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="disable_automation"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-danger" type="submit"><#LANG_DS_AUTO_OFF#></button></form>
       [#else#]
         <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="enable_automation"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-warning" type="submit"><#LANG_DS_AUTO_ON#></button></form>
       [#endif#]
+
+      <hr>
+      <h4><#LANG_DS_CTL_DRYRUN_TITLE#></h4>
+      <p>[#if DRY_RUN="1"#]<#LANG_DS_DRYRUN_ON#>[#else#]<#LANG_DS_DRYRUN_OFF#>[#endif#]</p>
+      [#if DRY_RUN="1"#]
+        <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="set_dry_run"><input type="hidden" name="value" value="0"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-danger" type="submit"><#LANG_DS_CTL_DRYRUN_TOGGLE_ON#></button></form>
+      [#else#]
+        <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="set_dry_run"><input type="hidden" name="value" value="1"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-default" type="submit"><#LANG_DS_CTL_DRYRUN_TOGGLE_OFF#></button></form>
+      [#endif#]
     </div>
   </div>
   [#endif#]
 
-  <!-- ================= ENERGY ================= -->
-  [#if TAB="energy"#]
-  <form method="post" action="?tab=energy">
+  <!-- ================= POLICY (energy + tariff + forecast) ================= -->
+  [#if TAB="policy"#]
+  <h4><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_POLICY_ENERGY#></h4>
+  <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
     <p class="text-muted"><#LANG_DS_EN_INTRO#></p>
     <div class="row">
@@ -267,11 +291,10 @@
     <p class="text-muted" style="font-size:12px;"><#LANG_DS_PWR_RAW#>: <code>[#POWER_RAW#]</code> — <#LANG_DS_PWR_INTERP#>: [#POWER_HUMAN#]</p>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
-  [#endif#]
 
-  <!-- ================= TARIFF ================= -->
-  [#if TAB="tariff"#]
-  <form method="post" action="?tab=tariff">
+  <hr>
+  <h4><span class="glyphicon glyphicon-time"></span> <#LANG_DS_POLICY_TARIFF#></h4>
+  <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
     <p class="text-muted"><#LANG_DS_TAR_INTRO#></p>
     <div class="row">
@@ -298,10 +321,9 @@
     <p><#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="label label-info"><#LANG_DS_YES#></span>[#else#]<#LANG_DS_NO#>[#endif#]</p>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
-  [#endif#]
 
-  <!-- ================= FORECAST ================= -->
-  [#if TAB="forecast"#]
+  <hr>
+  <h4><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_POLICY_FORECAST#></h4>
   <p class="text-muted"><#LANG_DS_FC_INTRO#></p>
   <div class="panel panel-default"><div class="panel-body">
     [#if FC_AVAILABLE="1"#]
@@ -316,7 +338,7 @@
     [#endif#]
   </div></div>
 
-  <form method="post" action="?tab=forecast">
+  <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
     <div class="row">
       <div class="col-md-3 form-group"><label><#LANG_DS_FC_TODAY_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="FORECAST_TODAY_PROP">[#OPTS_FORECAST_TODAY_PROP#]</select>[#else#]<input class="form-control" name="FORECAST_TODAY_PROP" value="[#CFG_FORECAST_TODAY_PROP#]" placeholder="SolarForecast.TodayRemainingKwh">[#endif#]</div>
@@ -327,7 +349,7 @@
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
   <hr>
-  <form method="post" action="?tab=forecast">
+  <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="discover_properties"><input type="hidden" name="csrf" value="[#CSRF#]">
     <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FC_DISCOVER#></button>
     <small class="text-muted"><#LANG_DS_FC_DISCOVER_HINT#></small>
@@ -341,12 +363,116 @@
   [#endif#]
   [#endif#]
 
-  <!-- ================= PRESENCE ================= -->
-  [#if TAB="presence"#]
+  <!-- ================= ADVANCED ================= -->
+  [#if TAB="advanced"#]
+
+  <!-- (a) /24 network sweep -->
+  <h4><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></h4>
+  <p class="text-muted"><#LANG_DS_SCAN_HINT#></p>
+  <form method="post" action="?tab=advanced" style="margin-bottom:10px;">
+    <input type="hidden" name="op" value="scan_network">
+    <input type="hidden" name="csrf" value="[#CSRF#]">
+    <div class="row">
+      <div class="col-md-4 form-group">
+        <label><#LANG_DS_BASE_IP#></label>
+        <input class="form-control" name="base_ip" placeholder="172.16.0.1">
+      </div>
+      <div class="col-md-2 form-group">
+        <label><#LANG_DS_MAX_HOSTS#></label>
+        <input class="form-control" name="max_hosts" value="64">
+      </div>
+    </div>
+    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></button>
+  </form>
+  [#if SCAN_NEED_BASE_IP="1"#]
+    <div class="alert alert-warning"><#LANG_DS_SCAN_NEED_BASE_IP#></div>
+  [#endif#]
+  [#if SCAN_RESULT#]
+    <div class="panel panel-default" style="margin-top:12px;"><div class="panel-heading"><#LANG_DS_SCAN_FOUND#></div>
+      <table class="table table-condensed"><tbody>
+      [#begin SCAN_RESULT#]
+        <tr><td><code>[#host#]</code></td><td>[#if is_boiler="1"#]<span class="label label-success"><#LANG_DS_SCAN_IS_BOILER#></span>[#else#]<span class="label label-default"><#LANG_DS_SCAN_ESPHOME#></span>[#endif#]</td></tr>
+      [#end SCAN_RESULT#]
+      </tbody></table>
+    </div>
+  [#endif#]
+
+  <hr>
+  <!-- (b) BLE boiler scan (optional) -->
+  <h4><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></h4>
+  [#if BLE_AVAILABLE="1"#]
+    <p class="text-muted"><#LANG_DS_BLE_HINT#></p>
+    [#if SELECTED_BLE_MAC#]
+      <p><#LANG_DS_BLE_SELECTED#>: <code>[#SELECTED_BLE_MAC#]</code></p>
+    [#endif#]
+    <form method="post" action="?tab=advanced" class="form-inline" style="margin-bottom:10px;">
+      <input type="hidden" name="op" value="ble_scan_clear"><input type="hidden" name="csrf" value="[#CSRF#]">
+      <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_BLE_CLEAR#></button>
+    </form>
+    [#if BLE_HAS_DEVICES="1"#]
+      <table class="table table-condensed table-striped">
+        <thead><tr><th>MAC</th><th><#LANG_DS_BLE_NAME#></th><th>RSSI</th><th></th></tr></thead>
+        <tbody>
+        [#begin BLE_DEVICES#]
+          <tr [#if BOILER="1"#]class="success"[#endif#]>
+            <td><code>[#MAC#]</code> [#if BOILER="1"#]<span class="label label-success"><#LANG_DS_BLE_IS_BOILER#></span>[#endif#]</td>
+            <td>[#NAME#]</td>
+            <td>[#RSSI#] dBm</td>
+            <td>
+              <form method="post" action="?tab=advanced" style="margin:0;">
+                <input type="hidden" name="op" value="select_boiler"><input type="hidden" name="csrf" value="[#CSRF#]">
+                <input type="hidden" name="mac" value="[#MAC#]">
+                <button class="btn btn-xs btn-primary" type="submit"><#LANG_DS_BLE_CHOOSE#></button>
+              </form>
+            </td>
+          </tr>
+        [#end BLE_DEVICES#]
+        </tbody>
+      </table>
+      <p class="text-muted" style="font-size:12px;"><#LANG_DS_BLE_AFTER_CHOOSE#></p>
+    [#else#]
+      <div class="alert alert-info"><#LANG_DS_BLE_EMPTY#></div>
+    [#endif#]
+  [#else#]
+    <p class="text-muted"><span class="glyphicon glyphicon-info-sign"></span> <#LANG_DS_BLE_OPTIONAL#></p>
+  [#endif#]
+
+  <hr>
+  <!-- (c) Simple Devices map -->
+  <h4><span class="glyphicon glyphicon-th-large"></span> <#LANG_DS_TAB_SIMPLEDEV#></h4>
+  <p class="text-muted"><#LANG_DS_SD_INTRO#></p>
+  [#if SIMPLE_DEVICES_AVAILABLE="1"#]
+    <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_SD_NOTE#></div>
+  [#else#]
+    <div class="alert alert-warning"><#LANG_DS_SD_UNAVAILABLE#></div>
+  [#endif#]
+  <form method="post" action="?tab=advanced">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
+    <div class="checkbox"><label><input type="checkbox" name="SIMPLE_DEVICES_ENABLED" value="1" [#if SIMPLE_DEVICES_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SD_ENABLE#></label></div>
+    <div class="alert alert-info" style="font-size:12px;"><strong><#LANG_DS_SD_USUALLY_EMPTY#></strong></div>
+    <div class="form-group">
+      <label><#LANG_DS_SD_MAP#></label>
+      <textarea class="form-control" name="SIMPLE_DEVICES_MAP_JSON" rows="7" style="font-family:monospace;font-size:12px;" placeholder='{"thermostat":{"type":"SThermostats","object":"DraziceBoiler","title":"Drazice Boiler"}, ...}'>[#CFG_SIMPLE_DEVICES_MAP_JSON#]</textarea>
+      <small class="text-muted"><#LANG_DS_SD_MAP_HINT#></small>
+    </div>
+    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
+  </form>
+  <form method="post" action="?tab=advanced" style="margin-top:8px;">
+    <input type="hidden" name="op" value="provision_simple_devices"><input type="hidden" name="csrf" value="[#CSRF#]">
+    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SD_PROVISION#></button>
+    <small class="text-muted"><#LANG_DS_SD_PROVISION_HINT#></small>
+  </form>
+  [#if PROVISION_RESULT#]
+    <div class="alert alert-success" style="margin-top:10px;"><#LANG_DS_SD_PROVISIONED#></div>
+  [#endif#]
+
+  <hr>
+  <!-- (d) Presence -->
+  <h4><span class="glyphicon glyphicon-user"></span> <#LANG_DS_TAB_PRESENCE#></h4>
   <div class="alert alert-warning" style="font-size:12px;"><#LANG_DS_PR_WARN#></div>
   <p class="text-muted"><#LANG_DS_PR_INTRO#></p>
   [#if PRESENT_PEOPLE#]<p><#LANG_DS_PR_PRESENT#>: <strong>[#PRESENT_PEOPLE#]</strong></p>[#endif#]
-  <form method="post" action="?tab=presence">
+  <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
     <div class="checkbox"><label><input type="checkbox" name="PRESENCE_ENABLED" value="1" [#if PRESENCE_ENABLED="1"#]checked[#endif#]> <#LANG_DS_PR_ENABLE#></label></div>
     <div class="form-group"><label><#LANG_DS_PR_ROSTER#></label><input class="form-control" name="PRESENCE_ROSTER_JSON" value="[#CFG_PRESENCE_ROSTER_JSON#]"><small class="text-muted"><#LANG_DS_H_PR_ROSTER#></small></div>
@@ -360,35 +486,6 @@
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_PR_EVENTS#></div>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
-  [#endif#]
-
-  <!-- ================= SIMPLE DEVICES ================= -->
-  [#if TAB="simpledev"#]
-  <p class="text-muted"><#LANG_DS_SD_INTRO#></p>
-  [#if SIMPLE_DEVICES_AVAILABLE="1"#]
-    <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_SD_NOTE#></div>
-  [#else#]
-    <div class="alert alert-warning"><#LANG_DS_SD_UNAVAILABLE#></div>
-  [#endif#]
-  <form method="post" action="?tab=simpledev">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <div class="checkbox"><label><input type="checkbox" name="SIMPLE_DEVICES_ENABLED" value="1" [#if SIMPLE_DEVICES_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SD_ENABLE#></label></div>
-    <div class="form-group">
-      <label><#LANG_DS_SD_MAP#></label>
-      <textarea class="form-control" name="SIMPLE_DEVICES_MAP_JSON" rows="7" style="font-family:monospace;font-size:12px;" placeholder='{"thermostat":{"type":"SThermostats","object":"DraziceBoiler","title":"Drazice Boiler"}, ...}'>[#CFG_SIMPLE_DEVICES_MAP_JSON#]</textarea>
-      <small class="text-muted"><#LANG_DS_SD_MAP_HINT#></small>
-    </div>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
-  </form>
-  <hr>
-  <form method="post" action="?tab=simpledev">
-    <input type="hidden" name="op" value="provision_simple_devices"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SD_PROVISION#></button>
-    <small class="text-muted"><#LANG_DS_SD_PROVISION_HINT#></small>
-  </form>
-  [#if PROVISION_RESULT#]
-    <div class="alert alert-success" style="margin-top:10px;"><#LANG_DS_SD_PROVISIONED#></div>
-  [#endif#]
   [#endif#]
 
   <!-- ================= LOG ================= -->
@@ -458,17 +555,6 @@
     </div>
   </div>
 
-  <div class="panel panel-default">
-    <div class="panel-heading"><strong><#LANG_DS_DG_PIN#></strong></div>
-    <div class="panel-body">
-      <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_DG_PIN_HINT#></div>
-      <form method="post" action="?tab=diag" class="form-inline">
-        <input type="hidden" name="op" value="send_pin"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <input class="form-control" type="number" name="pin" min="1111" max="9999" placeholder="PIN">
-        <button class="btn btn-default" type="submit"><#LANG_DS_DG_SEND_PIN#></button>
-      </form>
-    </div>
-  </div>
   [#endif#]
 
 </div>

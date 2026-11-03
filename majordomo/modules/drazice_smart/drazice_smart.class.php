@@ -93,7 +93,10 @@ class drazice_smart extends module
         if (isset($mode))      $this->mode      = $mode;
         if (isset($view_mode)) $this->view_mode = $view_mode;
         if (isset($edit_mode)) $this->edit_mode = $edit_mode;
-        if (isset($tab))       $this->tab       = $tab;
+        // Only honour the tab from the CURRENT request (?tab=...). Do NOT restore
+        // the persisted/global tab: a fresh open with no ?tab= must land on the
+        // default Status tab (see run(): falls back to 'status' when unset).
+        if (isset($_REQUEST['tab'])) $this->tab = $_REQUEST['tab'];
     }
 
     function run()
@@ -916,10 +919,21 @@ EOD;
                 $this->saveConfig();
                 break;
             case 'scan_network':
-                $out['SCAN_RESULT'] = $this->opScanNetwork();
+                $scan = $this->opScanNetwork();
+                // Flatten for the parser: a list of devices OR a need_base_ip error.
+                if (isset($scan['error'])) {
+                    $out['SCAN_NEED_BASE_IP'] = ($scan['error'] === 'need_base_ip') ? 1 : 0;
+                } else {
+                    $out['SCAN_RESULT'] = $scan;
+                }
                 break;
             case 'probe_host':
-                $out['PROBE_RESULT'] = $this->opProbeHost();
+                $probe = $this->opProbeHost();
+                // Flat keys (the parser cannot branch on nested PROBE_RESULT.*).
+                $out['PROBE_CMD'] = 1;
+                $out['PROBE_REACHABLE'] = !empty($probe['ok']) ? 1 : 0;
+                $out['PROBE_IS_BOILER'] = !empty($probe['is_boiler']) ? 1 : 0;
+                $out['PROBE_HOST'] = isset($probe['host']) ? $probe['host'] : '';
                 break;
             case 'discover_properties':
                 $out['PROPERTY_CANDIDATES'] = $this->discoverProperties();
@@ -937,7 +951,18 @@ EOD;
                 $out['CMD_RESULT'] = $this->opButton('Boiler Reconnect BLE');
                 break;
             case 'send_pin':
-                $out['CMD_RESULT'] = $this->opSendPin();
+                $pinRes = $this->opSendPin();
+                $out['CMD_RESULT'] = $pinRes;
+                // Flat keys for the parser (it cannot read nested CMD_RESULT.*).
+                $out['PIN_CMD'] = 1;
+                $reason = isset($pinRes['reason']) ? $pinRes['reason'] : '';
+                $out['PIN_ACCEPTED'] = !empty($pinRes['accepted']) ? 1 : 0;
+                // "sent": transport POST succeeded but the boiler is not yet Connected.
+                $out['PIN_SENT'] = (!empty($pinRes['ok']) && empty($pinRes['accepted'])) ? 1 : 0;
+                // bad_pin -> validator rejected the input.
+                $out['PIN_BAD'] = ($reason === 'bad_pin') ? 1 : 0;
+                // ESP unreachable / transport failure.
+                $out['PIN_ESP_DOWN'] = (empty($pinRes['ok']) && $reason !== 'bad_pin') ? 1 : 0;
                 break;
             case 'ble_scan_clear':
                 $out['CMD_RESULT'] = $this->opButton('BLE Scan Clear');
