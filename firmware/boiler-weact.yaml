@@ -26,6 +26,9 @@ substitutions:
   heat_false_debounce_s: "30"     # скільки Heat=false має протриматись, щоб зарахувати паузу
   lease_ttl_s: "180"              # дозвіл від MajorDoMo діє стільки (с); не поновили — забороняємо нові пуски
   command_timeout_s: "20"         # час на readback підтвердження команди
+  # Світлодіод статусу (економний heartbeat). Підтвердіть пін LED вашої плати.
+  status_led_pin: "GPIO2"         # вбудований LED (на багатьох ESP32 це GPIO2)
+  status_led_inverted: "false"    # true, якщо LED світиться при LOW
 
 esphome:
   name: ${device_name}
@@ -64,6 +67,7 @@ packages:
   diagnostics: !include packages/diagnostics.yaml
   smartboiler: !include packages/smartboiler.yaml
   policy:      !include packages/policy_guard.yaml
+  status_led:  !include packages/status_led.yaml
 
 # Локальна вебсторінка без CDN, з автентифікацією. basic/ digest — перевірити у
 # вибраній версії ESPHome (див. docs/api-contract). HTTP у LAN НЕ шифрується.

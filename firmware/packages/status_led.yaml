@@ -1,0 +1,55 @@
+# ---- Світлодіод статусу (економний до акума) --------------------------------
+# Вбудований LED плати WeAct ESP32 Core Board. НЕ світиться постійно — щоб не
+# витрачати струм (важливо при живленні від акумулятора). Замість постійного
+# світіння — КОРОТКІ РІДКІСНІ блимання («heartbeat»). Середнє споживання LED
+# мізерне: він увімкнений лише ~60 мс раз на кілька секунд (<2% часу).
+#
+# ВАЖЛИВО: пін вбудованого LED на ВАШІЙ платі підтвердіть. На багатьох ESP32 це
+# GPIO2; WeAct може мати інший пін або інверсію. Якщо LED не реагує — змініть
+# status_led_pin / status_led_inverted у substitutions головного
+# boiler-weact.yaml. Повністю вимкнути індикацію — приберіть цей пакет.
+#
+# Патерни блимання (що рідше, то менше споживання):
+#   Require PIN (пейрінг)        : коротка спалах щосекунди (помітно)
+#   Wi-Fi або BLE не підключено  : коротка спалах раз на ~4 с
+#   Усе добре (BLE connected)    : коротка спалах раз на ~16 с (ледь помітно)
+
+output:
+  - platform: gpio
+    pin:
+      number: ${status_led_pin}
+      inverted: ${status_led_inverted}
+    id: status_led_out
+
+globals:
+  - id: status_led_tick
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: 'id(status_led_tick) += 1;'
+      - if:
+          condition:
+            lambda: |-
+              uint32_t t = id(status_led_tick);
+              // Поточний стан системи.
+              bool wifi_ok = network::is_connected();
+              std::string bstate = id(boiler_state).state;   // стан BLE бойлера
+              bool need_pin = (bstate.find("PIN") != std::string::npos) ||
+                              (bstate.find("Require") != std::string::npos);
+              bool ble_connected = (bstate.find("Connected") != std::string::npos);
+
+              if (need_pin) {
+                return true;                 // кожну секунду — помітно
+              }
+              if (!wifi_ok || !ble_connected) {
+                return (t % 4 == 0);         // раз на ~4 с
+              }
+              return (t % 16 == 0);          // усе добре — раз на ~16 с
+          then:
+            - output.turn_on: status_led_out
+            - delay: 60ms
+            - output.turn_off: status_led_out

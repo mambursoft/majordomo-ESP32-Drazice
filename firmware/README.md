@@ -38,6 +38,27 @@ copy firmware\secrets.example.yaml firmware\secrets.yaml   # і заповнит
 `docs/flashing-linux.ua.md`, `docs/flashing-freebsd.ua.md`.
 Пейрінг із бойлером — `docs/pairing.ua.md`.
 
+## Накат змін на ESP (deploy)
+
+Коли ви щось змінили у прошивці — застосуйте зміни одним кроком через
+`tools/deploy.py` (запускати з кореня репо, у `.venv-build`):
+
+```powershell
+# По мережі (OTA) — без кабелю, плата вже біля бойлера (рекомендовано):
+.\.venv-build\Scripts\python.exe tools\deploy.py ota --host 172.16.0.150
+#   або коротко:  tools\deploy-ota.bat 172.16.0.150
+
+# По кабелю (USB):
+.\.venv-build\Scripts\python.exe tools\deploy.py usb --port COM7 --use-flash-venv
+#   або коротко:  tools\deploy-usb.bat COM7
+
+# Лише зібрати, без заливки:
+.\.venv-build\Scripts\python.exe tools\deploy.py build
+```
+
+OTA: пароль береться з `firmware/secrets.yaml` самим ESPHome; лише довірена
+LAN/VPN, під наглядом, поза активним критичним нагрівом.
+
 ## Важливо
 
 - Компонент `smartboiler` **вендоровано** у `components/smartboiler/` з дозволу
