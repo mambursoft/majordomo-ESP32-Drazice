@@ -31,8 +31,10 @@ Raspberry Pi. Ви **ніколи не працювали з ESP32**. Цей п�
    обмеження).
 
 Якщо ви не знаєте, з чого почати — відкрийте
-[`docs/pairing.ua.md`](docs/pairing.ua.md) (покрокове під'єднання ESP32) та
-[`docs/majordomo-install.ua.md`](docs/majordomo-install.ua.md).
+[`docs/pairing.ua.md`](docs/pairing.ua.md) (покрокове під'єднання ESP32),
+[`docs/majordomo-install.ua.md`](docs/majordomo-install.ua.md) та
+[`docs/simple-devices.ua.md`](docs/simple-devices.ua.md) (сканування/вибір MAC у
+MajorDoMo і бойлер як «Простий пристрій»).
 
 ## Безпека передусім
 

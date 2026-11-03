@@ -42,7 +42,11 @@
     "esp_uptime":        {"domain": "sensor",       "name": "ESP Uptime",          "unit": "s", "writable": false},
     "esp_rssi":          {"domain": "sensor",       "name": "ESP Wi-Fi RSSI",      "unit": "dBm", "writable": false},
     "esp_free_heap":     {"domain": "sensor",       "name": "ESP Free Heap",       "unit": "B", "writable": false},
-    "esp_reset_reason":  {"domain": "text_sensor",  "name": "ESP Reset Reason",    "writable": false}
+    "esp_reset_reason":  {"domain": "text_sensor",  "name": "ESP Reset Reason",    "writable": false},
+
+    "ble_scan_results":  {"domain": "text_sensor",  "name": "BLE Scan Results",    "writable": false, "format": "json", "optional": true, "note": "список знайдених BLE-пристроїв; присутній лише коли підключено packages/ble_scan.yaml або прошивку boiler-scan.yaml"},
+    "ble_last_seen":     {"domain": "text_sensor",  "name": "BLE Last Seen Device","writable": false, "optional": true},
+    "ble_scan_clear":    {"domain": "button",       "name": "BLE Scan Clear",      "writable": true, "optional": true}
   },
   "capabilities": {
     "stop": false,

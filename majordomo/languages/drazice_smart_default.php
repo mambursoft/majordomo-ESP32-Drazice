@@ -13,9 +13,21 @@ $dictionary = array(
     'DS_TAB_TARIFF'      => 'Tariff',
     'DS_TAB_FORECAST'    => 'Forecast sources',
     'DS_TAB_PRESENCE'    => 'Presence',
+    'DS_TAB_SIMPLEDEV'   => 'Simple Devices',
     'DS_TAB_LOG'         => 'Log',
     'DS_TAB_DIAG'        => 'Diagnostics',
     'DS_SAVE'            => 'Save',
+
+    // Simple Devices
+    'DS_SD_INTRO'        => 'Integrate the boiler into the native MajorDoMo "Simple Devices" module. The boiler appears as an ordinary thermostat (+ sensors) controllable from the standard devices UI, scenes, rooms, and app.',
+    'DS_SD_NOTE'         => 'The thermostat is created relay-readonly: the core logic never drives the element itself — all commands go through the ESP32 local guard (cooldown/lease). A target change in the Devices UI is intercepted and sent via the guarded REST path.',
+    'DS_SD_UNAVAILABLE'  => 'The Devices module is not available in this environment. The integration works only on a real MajorDoMo.',
+    'DS_SD_ENABLE'       => 'Enable Simple Devices integration',
+    'DS_SD_MAP'          => 'Device map (JSON)',
+    'DS_SD_MAP_HINT'     => 'Leave empty for the default map. Keys: thermostat, temp_lower, energy, battery_soc, hdo. Each has: type (your MajorDoMo simple-device type, e.g. SThermostats), object (object name), title. Confirm types against the list in Devices → Add.',
+    'DS_SD_PROVISION'    => 'Create simple devices',
+    'DS_SD_PROVISION_HINT' => 'Creates missing devices from the map (idempotent — existing ones are left alone). They then sync automatically each cycle.',
+    'DS_SD_PROVISIONED'  => 'Done: simple devices created/verified. Open the Devices module to see the boiler.',
 
     'DS_SAFE_BANNER'     => 'Safe by default: the module only observes. Automation is off until you enable it. BLE does not stop heating when the link drops.',
 
@@ -38,6 +50,30 @@ $dictionary = array(
     'DS_SCAN_ESPHOME'    => 'ESPHome device (not the boiler)',
     'DS_HOST_INVALID'    => 'Address rejected (private LAN addresses only):',
     'DS_HOST_OK'         => 'Address is valid',
+
+    // BLE scan (choose boiler by MAC)
+    'DS_BLE_TITLE'       => 'Scan boilers over Bluetooth',
+    'DS_BLE_HINT'        => 'The ESP32 scans the air and lists discovered BLE devices. Pick your boiler from the list (boiler-like ones are on top, green). Works only when the scanner is enabled on the ESP (boiler-scan.yaml firmware or the ble_scan package). The vendor Drazice app must be disconnected.',
+    'DS_BLE_SELECTED'    => 'Selected boiler MAC',
+    'DS_BLE_CLEAR'       => 'Clear the list and scan again',
+    'DS_BLE_NAME'        => 'Name',
+    'DS_BLE_IS_BOILER'   => 'boiler-like',
+    'DS_BLE_CHOOSE'      => 'Choose',
+    'DS_BLE_EMPTY'       => 'Nothing found yet. Wait a few seconds and refresh. Make sure the vendor app is disconnected from the boiler.',
+    'DS_BLE_UNAVAILABLE' => 'BLE scanner is not available on this firmware. Flash firmware/boiler-scan.yaml or add the packages/ble_scan.yaml package to see the list here.',
+    'DS_BLE_AFTER_CHOOSE' => 'After choosing, put this MAC into firmware/secrets.yaml (boiler_ble_mac) and flash the main boiler-weact.yaml — then the ESP32 connects to exactly this boiler.',
+
+    // Diagnostics (full feature view)
+    'DS_DG_INTRO'        => 'Full state of every firmware feature, read from the ESP32 over HTTP.',
+    'DS_DG_BOILER'       => 'Boiler',
+    'DS_DG_BOILER_STATE' => 'Connection state',
+    'DS_DG_BOILER_NAME'  => 'Boiler name',
+    'DS_DG_GUARD'        => 'Local guard',
+    'DS_DG_GUARD_REASON' => 'State reason',
+    'DS_DG_CONT_HEAT'    => 'Continuous heat',
+    'DS_DG_ESP'          => 'ESP32',
+    'DS_DG_BLE_CTL'      => 'BLE control',
+    'DS_DG_LEASE_RENEW'  => 'Renew lease',
 
     'DS_ST_TEMP_UPPER'   => 'Temperature (upper sensor)',
     'DS_ST_TEMP_LOWER'   => 'Temperature (lower sensor)',

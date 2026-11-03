@@ -3,6 +3,27 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.2.0] — 2026-11-01
+
+### Додано
+
+- **Інтеграція «Прості пристрої» (MajorDoMo devices)** — `lib/SimpleDevices.php`
+  + вкладка «Прості пристрої». Бойлер створюється як штатний термостат
+  (`SThermostats`, relay_readonly) + сенсори (нижній датчик, енергія, SOC, HDO)
+  і синхронізується в циклі. Команда зміни цілі з UI «Пристроїв» перехоплюється
+  і йде через guarded REST (cooldown/lease зберігаються). Створення
+  ідемпотентне (`devices::addDevice` з дедуплікацією за об'єктом). Карта
+  пристроїв редагується у UI (JSON); типи беруться з runtime, не вгадуються.
+- **BLE-сканер бойлерів видно й обирається в MajorDoMo**: `packages/ble_scan.yaml`
+  тепер веде СПИСОК знайдених пристроїв (MAC/назва/RSSI/«схоже на бойлер») у
+  JSON через text_sensor «BLE Scan Results» + кнопка «BLE Scan Clear». Вкладка
+  «Пристрої» показує таблицю і дозволяє обрати MAC одним кліком; обраний MAC
+  зберігається в модулі.
+- **Повна діагностика в UI**: вкладка «Діагностика» показує ВСІ entity прошивки
+  (стан бойлера/guard, continuous heat, cooldown, lease, ESP uptime/RSSI/heap/
+  reset reason/версія) + кнопки Lease Renew / Release / Reconnect BLE.
+- Документ `docs/simple-devices.{ua,ru}.md` з інструкціями для MajorDoMo.
+
 ## [1.1.0] — 2026-11-01
 
 ### Змінено

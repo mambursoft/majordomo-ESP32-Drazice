@@ -23,6 +23,7 @@ use DraziceSmart\ForecastAdapter;
 use DraziceSmart\Repository;
 use DraziceSmart\NetworkScanner;
 use DraziceSmart\Presence;
+use DraziceSmart\SimpleDevices;
 
 class drazice_smart extends module
 {
@@ -176,6 +177,7 @@ class drazice_smart extends module
             'ESP_PASS'             => '',
             'ESP_DIGEST'           => 0,
             'POLL_INTERVAL_S'      => 15,
+            'BOILER_BLE_MAC'       => '',   // обраний у сканері BLE MAC бойлера
             // safety master switches
             'AUTOMATION_ENABLED'   => 0,     // never auto-control until confirmed
             'DRY_RUN'              => 1,     // compute decisions, do not write
@@ -224,6 +226,13 @@ class drazice_smart extends module
             'PRESENCE_HANDLER'     => '',   // MajorDoMo method to call (announce)
             // surplus latch state (planner hysteresis)
             'SURPLUS_LATCHED'      => 0,
+            // Simple Devices ("Простые устройства") integration — OFF by default.
+            // When enabled, the boiler is mirrored into native simple devices
+            // (thermostat + sensors) so it is visible/controllable in the
+            // Devices UI. Map is editable in the UI; types come from runtime.
+            'SIMPLE_DEVICES_ENABLED' => 0,
+            'SIMPLE_DEVICES_MAP_JSON' => '',   // empty => SimpleDevices::defaultMap()
+            '_LAST_PUBLISHED_TARGET' => '',    // internal: last target we pushed
         );
         foreach ($defaults as $k => $v) {
             if (!isset($this->config[$k])) {
@@ -431,7 +440,60 @@ EOD;
             $this->evaluatePresence($snapshot['now_utc']);
         }
 
+        // Simple Devices ("Простые устройства") sync (optional).
+        if (!empty($this->config['SIMPLE_DEVICES_ENABLED'])) {
+            $this->syncSimpleDevices($snapshot, $decision);
+        }
+
         return array('snapshot' => $snapshot, 'decision' => $decision);
+    }
+
+    /** Resolve the Simple Devices map (admin JSON override or default). */
+    private function simpleDevicesMap()
+    {
+        $raw = isset($this->config['SIMPLE_DEVICES_MAP_JSON']) ? $this->config['SIMPLE_DEVICES_MAP_JSON'] : '';
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                return $decoded;
+            }
+        }
+        return SimpleDevices::defaultMap();
+    }
+
+    /**
+     * Mirror telemetry into simple devices and pick up a target command issued
+     * from the native Devices UI, routing it through the guarded REST path.
+     */
+    private function syncSimpleDevices($snapshot, $decision)
+    {
+        if (!SimpleDevices::available()) {
+            return;
+        }
+        $map = $this->simpleDevicesMap();
+
+        // 1. A target change made in the Devices thermostat UI -> guarded write.
+        $last = ($this->config['_LAST_PUBLISHED_TARGET'] === '' ? null : (float) $this->config['_LAST_PUBLISHED_TARGET']);
+        $cmd = SimpleDevices::readTargetCommand($map, $last);
+        if ($cmd !== null) {
+            $t = $this->makeTransport();
+            $res = $t->postSet('number', 'Boiler Requested Target', (int) round($cmd));
+            Repository::saveCommand(array(
+                'ts_utc' => time(), 'command_id' => 'simpledev', 'kind' => 'target',
+                'payload' => (string) $cmd,
+                'status' => ($res !== null ? 'sent' : 'failed'),
+                'detail' => ($res === null ? json_encode($t->getLastError()) : 'from Simple Devices UI'),
+            ));
+        }
+
+        // 2. Publish current state into the simple-device objects.
+        SimpleDevices::publish($map, $snapshot, $decision);
+
+        // Remember the target we published so a later UI change is detected.
+        if (isset($decision['target_c']) && $decision['target_c'] !== null) {
+            $this->config['_LAST_PUBLISHED_TARGET'] = (string) $decision['target_c'];
+            $this->saveConfig();
+        }
     }
 
     private function applyDecision($decision)
@@ -666,6 +728,18 @@ EOD;
             case 'send_pin':
                 $out['CMD_RESULT'] = $this->opSendPin();
                 break;
+            case 'ble_scan_clear':
+                $out['CMD_RESULT'] = $this->opButton('BLE Scan Clear');
+                break;
+            case 'select_boiler':
+                $out['CMD_RESULT'] = $this->opSelectBoiler();
+                break;
+            case 'lease_renew':
+                $out['CMD_RESULT'] = $this->opButton('Boiler Lease Renew');
+                break;
+            case 'provision_simple_devices':
+                $out['PROVISION_RESULT'] = SimpleDevices::provision($this->simpleDevicesMap());
+                break;
         }
 
         $snapshot = $this->buildSnapshot();
@@ -679,6 +753,8 @@ EOD;
         $out['DRY_RUN']  = !empty($this->config['DRY_RUN']) ? 1 : 0;
         $out['PRESENCE_ENABLED'] = !empty($this->config['PRESENCE_ENABLED']) ? 1 : 0;
         $out['SOLAR_SURPLUS_ENABLED'] = !empty($this->config['SOLAR_SURPLUS_ENABLED']) ? 1 : 0;
+        $out['SIMPLE_DEVICES_ENABLED'] = !empty($this->config['SIMPLE_DEVICES_ENABLED']) ? 1 : 0;
+        $out['SIMPLE_DEVICES_AVAILABLE'] = SimpleDevices::available() ? 1 : 0;
         $hv = Transport::validateHost(isset($this->config['ESP_HOST']) ? $this->config['ESP_HOST'] : '');
         $out['HOST_OK'] = !empty($hv['ok']) ? 1 : 0;
         $out['HOST_REASON'] = $hv['reason'];
@@ -687,6 +763,107 @@ EOD;
         $out['LOG_DECISIONS'] = $this->recentDecisions();
         $out['LOG_COMMANDS'] = $this->recentCommands();
         $out['PRESENT_PEOPLE'] = Repository::readProperty('EspBoiler.presentPeople');
+
+        // BLE scan results (list of discovered boilers to choose from).
+        // Use flat keys for the MajorDoMo parser (no dotted nesting in [#begin#]).
+        $ble = $this->bleScanDevices();
+        $out['BLE_AVAILABLE']    = !empty($ble['available']) ? 1 : 0;
+        $out['BLE_HAS_DEVICES']  = (!empty($ble['list'])) ? 1 : 0;
+        $out['BLE_DEVICES']      = $ble['list'];
+        $out['SELECTED_BLE_MAC'] = isset($this->config['BOILER_BLE_MAC']) ? $this->config['BOILER_BLE_MAC'] : '';
+
+        // Full diagnostics: flatten every firmware entity into DG_<KEY> keys.
+        $diag = $this->readDiagnostics();
+        foreach ($diag as $k => $v) {
+            $out['DG_' . $k] = ($v === null || $v === '') ? '—' : $v;
+        }
+    }
+
+    /**
+     * Read the BLE scan results JSON from the ESP ("BLE Scan Results" text
+     * sensor, present when ble_scan.yaml / boiler-scan.yaml is flashed).
+     * Returns a list of array(mac, name, boiler(bool), rssi) sorted boilers-first.
+     */
+    public function bleScanDevices()
+    {
+        $t = $this->makeTransport();
+        $json = $t->getState('text_sensor', 'BLE Scan Results');
+        $raw = Transport::stringValue($json);
+        $out = array('available' => ($json !== null), 'list' => array());
+        if ($raw === null || $raw === '') {
+            return $out;
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return $out;
+        }
+        // Boilers first, then by RSSI (strongest first).
+        usort($decoded, function ($a, $b) {
+            $ab = !empty($a['boiler']) ? 1 : 0;
+            $bb = !empty($b['boiler']) ? 1 : 0;
+            if ($ab !== $bb) {
+                return $bb - $ab;
+            }
+            $ar = isset($a['rssi']) ? (int) $a['rssi'] : -999;
+            $br = isset($b['rssi']) ? (int) $b['rssi'] : -999;
+            return $br - $ar;
+        });
+        foreach ($decoded as $d) {
+            if (!isset($d['mac'])) {
+                continue;
+            }
+            $out['list'][] = array(
+                'MAC'     => $d['mac'],
+                'NAME'    => isset($d['name']) ? $d['name'] : '',
+                'BOILER'  => !empty($d['boiler']) ? 1 : 0,
+                'RSSI'    => isset($d['rssi']) ? (int) $d['rssi'] : '',
+            );
+        }
+        return $out;
+    }
+
+    /** Read all diagnostic / full-feature entities for the Diagnostics tab. */
+    public function readDiagnostics()
+    {
+        $t = $this->makeTransport();
+        $read = function ($domain, $name) use ($t) {
+            $j = $t->getState($domain, $name);
+            if ($domain === 'sensor' || $domain === 'number') {
+                $v = Transport::numericValue($j);
+                return $v === null ? null : $v;
+            }
+            return Transport::stringValue($j);
+        };
+        return array(
+            'UPTIME'        => $read('sensor', 'ESP Uptime'),
+            'RSSI'          => $read('sensor', 'ESP Wi-Fi RSSI'),
+            'FREE_HEAP'     => $read('sensor', 'ESP Free Heap'),
+            'MIN_FREE_HEAP' => $read('sensor', 'ESP Min Free Heap'),
+            'RESET_REASON'  => $read('text_sensor', 'ESP Reset Reason'),
+            'ESPHOME_VER'   => $read('text_sensor', 'ESPHome Version'),
+            'GUARD_STATE'   => $read('text_sensor', 'Boiler Guard State'),
+            'GUARD_REASON'  => $read('text_sensor', 'Boiler Guard Reason'),
+            'CONT_HEAT_S'   => $read('sensor', 'Boiler Continuous Heat Seconds'),
+            'COOLDOWN_S'    => $read('sensor', 'Boiler Cooldown Remaining'),
+            'LEASE_S'       => $read('sensor', 'Boiler Lease Remaining'),
+            'BOILER_VER'    => $read('text_sensor', 'Boiler Version'),
+            'BOILER_NAME'   => $read('text_sensor', 'Boiler Name'),
+            'BOILER_STATE'  => $read('text_sensor', 'Boiler State'),
+            'REQ_TARGET'    => $read('number', 'Boiler Requested Target'),
+            'REQ_MODE'      => $read('select', 'Boiler Requested Mode'),
+        );
+    }
+
+    /** Choose a discovered BLE MAC as the boiler: store it in config. */
+    private function opSelectBoiler()
+    {
+        $mac = isset($_REQUEST['mac']) ? trim($_REQUEST['mac']) : '';
+        if (!preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $mac)) {
+            return array('ok' => false, 'reason' => 'bad_mac');
+        }
+        $this->config['BOILER_BLE_MAC'] = strtoupper($mac);
+        $this->saveConfig();
+        return array('ok' => true, 'mac' => strtoupper($mac));
     }
 
     private function recentDecisions()
@@ -758,6 +935,7 @@ EOD;
             'FORECAST_PROVIDER_PROP','FORECAST_FRESHNESS_TTL_S','BOOST_TTL_S','PRESENCE_ENABLED',
             'PRESENCE_ROSTER_JSON','PRESENCE_ABSENT_AFTER_S','PRESENCE_NOTIFY_AFTER_S',
             'PRESENCE_RENOTIFY_EVERY_S','PRESENCE_HANDLER',
+            'SIMPLE_DEVICES_ENABLED','SIMPLE_DEVICES_MAP_JSON',
         );
         foreach ($fields as $f) {
             if (isset($_REQUEST[$f])) {

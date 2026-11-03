@@ -1,23 +1,41 @@
-# ---- Пошук BLE-пристроїв (усуває потребу знати MAC бойлера заздалегідь) -----
-# Необов'язковий діагностичний пакет. Якщо ви НЕ знаєте BLE MAC бойлера:
-#   1. Зберіть окрему діагностичну прошивку, що включає лише network + ble_scan
-#      (див. firmware/boiler-scan.yaml).
-#   2. Переконайтесь, що штатний застосунок Drazice від'єднаний (бойлер рекламує
-#      BLE лише без іншого клієнта).
-#   3. Дивіться лог ESP32 (serial 115200 або web log): кожен знайдений пристрій
-#      друкується з MAC і назвою. Текстовий сенсор "BLE Last Seen Device"
-#      показує останній знайдений пристрій у вебінтерфейсі.
-#   4. Впишіть знайдений MAC у secrets.yaml (boiler_ble_mac).
+# ---- Пошук BLE-пристроїв (видно й обирається в MajorDoMo) -------------------
+# Накопичує СПИСОК знайдених BLE-пристроїв у JSON і віддає його по HTTP через
+# text_sensor "BLE Scan Results". Модуль MajorDoMo читає цей JSON, показує
+# таблицю пристроїв (MAC, ім'я, «схоже на бойлер», RSSI) і дозволяє ОБРАТИ MAC
+# одним кліком. Також є кнопка очищення списку.
 #
-# Увага: цей пакет НЕ підключають одночасно з робочим ble_client до того самого
-# бойлера без потреби — активне сканування + клієнт збільшують навантаження на
-# BLE-стек. Для пошуку MAC використовуйте окрему прошивку boiler-scan.yaml.
+# Використання:
+#   * Для ПОШУКУ MAC зберіть окрему прошивку firmware/boiler-scan.yaml
+#     (лише network + ble_scan, без робочого ble_client).
+#   * Переконайтесь, що штатний застосунок Drazice від'єднаний (бойлер
+#     рекламує BLE лише без іншого активного клієнта).
+#   * У модулі MajorDoMo, вкладка «Пристрої» -> «Сканувати бойлери по BLE».
+#
+# JSON-формат: [{"mac":"aa:bb:..","name":"OKHE","boiler":true,"rssi":-62}, ...]
+
+globals:
+  - id: ble_scan_json
+    type: std::string
+    restore_value: no
+    initial_value: '"[]"'
 
 text_sensor:
+  - platform: template
+    name: "BLE Scan Results"
+    id: ble_scan_results
+    update_interval: 5s
+    lambda: 'return id(ble_scan_json);'
   - platform: template
     name: "BLE Last Seen Device"
     id: ble_last_seen
     update_interval: never
+
+button:
+  - platform: template
+    name: "BLE Scan Clear"
+    id: ble_scan_clear
+    on_press:
+      - lambda: 'id(ble_scan_json) = "[]";'
 
 esp32_ble_tracker:
   scan_parameters:
@@ -29,20 +47,51 @@ esp32_ble_tracker:
       - lambda: |-
           std::string name = x.get_name();
           std::string mac = x.address_str();
-          // Евристика «схоже на бойлер»: ім'я містить відомі підрядки Drazice.
+          int rssi = x.get_rssi();
+
+          // Евристика «схоже на бойлер» за назвою Drazice / SMART.
           std::string lname = name;
-          for (auto &c : lname) c = tolower(c);
+          for (size_t i = 0; i < lname.size(); i++) lname[i] = tolower(lname[i]);
           bool looks_like_boiler =
               lname.find("okhe") != std::string::npos ||
               lname.find("drazice") != std::string::npos ||
               lname.find("dzd") != std::string::npos ||
               lname.find("smart") != std::string::npos ||
               lname.find("boiler") != std::string::npos;
-          ESP_LOGI("ble_scan", "Found device: MAC=%s name='%s'%s",
-                   mac.c_str(), name.c_str(),
-                   looks_like_boiler ? "  <-- схоже на бойлер" : "");
-          if (looks_like_boiler || !name.empty()) {
-            std::string label = mac + (name.empty() ? "" : (" (" + name + ")"))
-                + (looks_like_boiler ? " [boiler?]" : "");
-            id(ble_last_seen).publish_state(label);
+
+          // Ігноруємо пристрої без назви, якщо вони не схожі на бойлер, щоб не
+          // засмічувати список (телефони/годинники з рандомними MAC).
+          if (name.empty() && !looks_like_boiler) {
+            return;
           }
+
+          ESP_LOGI("ble_scan", "MAC=%s name='%s' rssi=%d%s",
+                   mac.c_str(), name.c_str(), rssi,
+                   looks_like_boiler ? "  <-- схоже на бойлер" : "");
+
+          // Екрануємо лапки/бекслеші в імені для коректного JSON.
+          std::string jn;
+          for (size_t i = 0; i < name.size(); i++) {
+            char c = name[i];
+            if (c == '"' || c == '\\') jn += '\\';
+            if (c >= 0x20) jn += c;
+          }
+
+          std::string entry = std::string("{\"mac\":\"") + mac + "\",\"name\":\"" + jn +
+              "\",\"boiler\":" + (looks_like_boiler ? "true" : "false") +
+              ",\"rssi\":" + to_string(rssi) + "}";
+
+          // Оновлюємо список: якщо MAC уже є — замінюємо запис, інакше додаємо.
+          std::string cur = id(ble_scan_json);
+          std::string key = std::string("\"mac\":\"") + mac + "\"";
+          if (cur.find(key) != std::string::npos) {
+            // вже у списку — лишаємо (не дублюємо; свіжий RSSI не критичний)
+            id(ble_last_seen).publish_state(mac + (name.empty() ? "" : (" (" + name + ")")));
+            return;
+          }
+          // Вставляємо на початок масиву. cur має вигляд "[...]" або "[]".
+          std::string inner = (cur.size() >= 2) ? cur.substr(1, cur.size() - 2) : "";
+          std::string joined = inner.empty() ? entry : (entry + "," + inner);
+          id(ble_scan_json) = std::string("[") + joined + "]";
+          id(ble_last_seen).publish_state(mac + (name.empty() ? "" : (" (" + name + ")"))
+              + (looks_like_boiler ? " [boiler?]" : ""));
