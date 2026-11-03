@@ -27,6 +27,12 @@ use DraziceSmart\SimpleDevices;
 
 class drazice_smart extends module
 {
+    // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
+    // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
+    public $module_category;
+    public $id;
+    public $title;
+
     function drazice_smart()
     {
         $this->name            = 'drazice_smart';
@@ -91,17 +97,25 @@ class drazice_smart extends module
 
     function checkInstalled()
     {
-        parent::checkInstalled();
-
+        // NOTE: do NOT call parent::checkInstalled() here. The base method calls
+        // $this->install() when the module is not yet installed, and install()
+        // calls checkInstalled() again -> infinite recursion -> memory-exhaust
+        // fatal (HTTP 500) during package installation. We perform the full
+        // registration ourselves below, and install() is invoked directly by
+        // the package installer.
         $rec = SQLSelectOne("SELECT ID, CATEGORY FROM project_modules WHERE NAME='" . $this->name . "'");
-        if (!$rec['ID']) {
-            SQLInsert('project_modules', array(
+        if (!is_array($rec) || empty($rec['ID'])) {
+            // NB: SQLInsert takes $record BY REFERENCE — must pass a variable,
+            // not an array literal (a literal is a fatal "cannot be passed by
+            // reference" error on PHP 7+ => HTTP 500).
+            $newRec = array(
                 'NAME'     => $this->name,
                 'TITLE'    => $this->title,
                 'CATEGORY' => $this->module_category,
                 'DATA'     => '',
-            ));
-        } elseif ($rec['CATEGORY'] != $this->module_category) {
+            );
+            SQLInsert('project_modules', $newRec);
+        } elseif (isset($rec['CATEGORY']) && $rec['CATEGORY'] != $this->module_category) {
             $rec['CATEGORY'] = $this->module_category;
             SQLUpdate('project_modules', $rec);
         }
@@ -132,10 +146,14 @@ class drazice_smart extends module
             $col = SQLSelectOne("SHOW COLUMNS FROM plugins LIKE 'MODULE_NAME'");
             $keyField = ($col && isset($col['Field'])) ? 'MODULE_NAME' : 'NAME';
             $pRec = SQLSelectOne("SELECT * FROM plugins WHERE " . $keyField . "='" . $this->name . "'");
+            if (!is_array($pRec)) {
+                $pRec = array();
+            }
             $descRu = 'Мониторинг и безопасное управление бойлерами Drazice SMART через ESP32/BLE. Без MQTT и без обязательного Home Assistant. Безопасно по умолчанию.';
             $descEn = 'Monitoring and safe control of Drazice SMART boilers via ESP32/BLE. No MQTT, no mandatory Home Assistant. Safe by default.';
-            if (!$pRec['ID']) {
-                SQLInsert('plugins', array(
+            if (empty($pRec['ID'])) {
+                // SQLInsert takes $record by reference — pass a variable.
+                $plRec = array(
                     $keyField         => $this->name,
                     'TITLE'           => $this->title,
                     'AUTHOR'          => 'mambursoft',
@@ -143,17 +161,18 @@ class drazice_smart extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-ESP32-Drazice',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.0',
-                    'LATEST_VERSION'  => '1.0.0',
+                    'CURRENT_VERSION' => '1.2.0',
+                    'LATEST_VERSION'  => '1.2.0',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
-                ));
+                );
+                SQLInsert('plugins', $plRec);
             } else {
                 $pRec['TITLE']           = $this->title;
                 $pRec['AUTHOR']          = 'mambursoft';
                 $pRec['DESCRIPTION_RU']  = $descRu;
                 $pRec['DESCRIPTION_EN']  = $descEn;
-                $pRec['CURRENT_VERSION'] = '1.0.0';
+                $pRec['CURRENT_VERSION'] = '1.2.0';
                 $pRec['IS_INSTALLED']    = 1;
                 SQLUpdate('plugins', $pRec);
             }

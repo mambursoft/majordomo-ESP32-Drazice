@@ -3,6 +3,24 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.2.1] — 2026-11-01
+
+### Виправлено
+
+- **HTTP 500 під час встановлення пакета.** Дві причини:
+  1. Нескінченна рекурсія `checkInstalled() → parent::checkInstalled() →
+     install() → checkInstalled()` (вичерпання пам'яті). Прибрано
+     `parent::checkInstalled()` з перевизначеного методу — реєстрація
+     виконується самим модулем, а `install()` викликає інсталятор напряму.
+  2. `SQLInsert($table, &$record)` приймає запис **за посиланням**, а виклики
+     передавали **літерал-масив** → fatal «cannot be passed by reference» на
+     PHP 7+. Замінено на передачу через змінну (`project_modules`, `plugins`).
+- Захищено доступ до `$rec['ID']/['CATEGORY']` і `$pRec['ID']` від undefined
+  key. Оголошено властивості класу (module_category/id/title) — прибрано PHP 8.2
+  deprecated dynamic property.
+- Додано діагностичний харнес `tools/diag_install.php` (емулює MajorDoMo runtime
+  і відтворює fatal локально; не входить у пакет модуля).
+
 ## [1.2.0] — 2026-11-01
 
 ### Додано
