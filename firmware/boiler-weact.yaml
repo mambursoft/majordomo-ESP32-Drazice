@@ -39,10 +39,11 @@ esphome:
     then:
       - lambda: 'id(boiler_guard_component).on_safe_boot();'
       # Реєструємо неблокуючий LED-пульс на кожен HTTP-запит. Хук викликається
-      # з vendored web_server (handleRequest) і лише вмикає status_led_out та
-      # планує його вимкнення через ~50 мс (без heap-алокацій, без блокування).
+      # з rest_api-компонента (перша дія обробки кожного прийнятого запиту) і
+      # лише вмикає status_led_out та планує його вимкнення через ~50 мс (без
+      # heap-алокацій, без блокування).
       - lambda: |-
-          esphome::web_server::set_web_activity_led_hook([]() {
+          esphome::rest_api::set_web_activity_led_hook([]() {
             id(status_led_out)->turn_on();
             App.scheduler.set_timeout((Component *) nullptr, "web_led", 50, []() {
               id(status_led_out)->turn_off();
@@ -70,11 +71,11 @@ external_components:
   - source:
       type: local
       path: components
-    # web_server тут — локальний override pinned-компонента ESPHome 2025.9.3:
-    # SSE event source (DeferredUpdateEventSource) вимкнено заради економії heap
-    # (див. firmware/components/web_server/UPSTREAM.md). Per-entity REST + auth
-    # не змінені. ESPHome бере локальну копію замість пакетної.
-    components: [smartboiler, boiler_guard, web_server]
+    # rest_api — власний легкий HTTP REST-сервер (синхронний WiFiServer, ручний
+    # JSON, Basic auth), що замінив ESPHome web_server/ESPAsyncWebServer. Останній
+    # вичерпував heap під Bluedroid BLE (free heap ~208 B -> "Empty reply from
+    # server"). smartboiler вендорено (дозвіл upstream LubosD), boiler_guard — наш.
+    components: [smartboiler, boiler_guard, rest_api]
 
 packages:
   network:     !include packages/network.yaml
@@ -83,23 +84,22 @@ packages:
   policy:      !include packages/policy_guard.yaml
   status_led:  !include packages/status_led.yaml
 
-# REST-інтерфейс для PHP-модуля. Транспорт машинний (читаємо /sensor/..,
-# /number/../set), важка вебсторінка НЕ потрібна. version: 2 — найлегший і
-# найстабільніший на ESP32+Arduino варіант (v3 з local:true вбудовує важкий JS,
-# що на ESPAsyncWebServer спричиняє "Connection reset by peer"/краш під auth).
-# HTTP у LAN НЕ шифрується; доступ лише з довірених вузлів.
-# УВАГА: SSE event source (/events) вимкнено у vendored web_server-компоненті
-# (firmware/components/web_server/) — саме його безперервна JSON-серіалізація у
-# loop() під Bluedroid BLE вичерпувала heap і спричиняла boot-loop -> SAFE MODE.
-# Per-entity REST (GET /sensor/.., POST /number/../set, ...) і auth збережені.
-web_server:
+# REST-інтерфейс для PHP-модуля. Транспорт машинний (GET /sensor/..,
+# POST /number/../set, POST /button/../press), важка вебсторінка НЕ потрібна.
+# Реалізація — власний компонент rest_api: синхронний WiFiServer/WiFiClient у
+# loop(), фіксовані стекові буфери, JSON будується вручну (БЕЗ ArduinoJson, без
+# per-request heap-документів). Це замінює ESPHome web_server/ESPAsyncWebServer,
+# який під Bluedroid BLE вичерпував heap (free heap ~208 B -> "Empty reply from
+# server") через окремий AsyncTCP-таск, per-connection буфери та ArduinoJson.
+# HTTP у LAN НЕ шифрується; доступ лише з довірених вузлів. Без mDNS/discovery.
+# Резолв entity — за display-name (get_name()); внутрішні (is_internal) НЕ
+# віддаємо, тож guard не обійти — запис іде через ті самі guarded template
+# number/select, що делегують у boiler_guard.
+rest_api:
   port: 80
-  version: 2
   auth:
     username: !secret web_username
     password: !secret web_password
-  # include_internal: за замовчуванням false — внутрішні (прямі) entity бойлера
-  # НЕ показуємо, щоб не можна було обійти guard. Назовні — лише guarded entities.
 
 # Нативний API ESPHome ВИМКНЕНО (ми не використовуємо HA/нативний транспорт).
 # Якщо увімкнете для діагностики — не дозволяйте йому перезавантажувати пристрій

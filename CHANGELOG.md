@@ -3,6 +3,39 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.5.0] — 2026-11-04
+
+### Змінено
+
+- **Замінено ESPHome `web_server` на власний легкий REST-сервер**
+  (`firmware/components/rest_api/`). Причина: навіть після вимкнення SSE (1.4.0)
+  порт 80 не обслуговував запити (`Empty reply`) — на серійнику вільного heap
+  лишалося **~208 байт**. `web_server` тягне важкий `ESPAsyncWebServer`
+  (окремий FreeRTOS-таск, буфери на з'єднання) + `ArduinoJson` (heap-документи
+  на кожну відповідь); під BLE-стеком Bluedroid памʼяті бракувало. Новий
+  компонент — синхронний `WiFiServer`/`WiFiClient` (lwIP, accept-in-loop),
+  фіксовані буфери на стеку, JSON формується вручну у `char[256]`, **без**
+  heap-документів. З графа залежностей зникли `ESPAsyncWebServer`, `AsyncTCP`,
+  `ArduinoJson`.
+- MajorDoMo потрібне лише машинне API, тож браузерний веб-UI прибрано повністю.
+
+### Підтверджено на залізі (WeAct ESP32-D0WD-V3, прошито по USB)
+
+- Вільний heap: **21 328 байт** (`GET /sensor/ESP%20Free%20Heap`) — замість
+  ~208 байт. Плата стабільна, без boot loop/SAFE MODE, BLE підключено.
+- `GET /sensor/Boiler%20Temp%20Upper` з Basic auth → `200` + JSON
+  `{"id":...,"value":...,"state":...}`; без облікових даних → `401`.
+  Відсутнє значення віддається як `value:null` (не фейковий 0).
+
+### Збережено
+
+- REST-контракт для PHP-модуля без змін: `GET /{domain}/{name}`,
+  `POST /{domain}/{name}/set?value=...`, `POST /button/{name}/press`, Basic auth.
+- Запис значень проходить через ті самі guarded-entity → `boiler_guard`
+  (внутрішні прямі entity бойлера назовні не виставляються).
+- Блимання LED на кожен HTTP-запит (хук перенесено у новий компонент).
+- Bluedroid BLE + smartboiler без змін (NimBLE у ESPHome 2025.9.3 відсутній).
+
 ## [1.4.0] — 2026-11-04
 
 ### Виправлено
