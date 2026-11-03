@@ -26,6 +26,19 @@
 - Використовується як інструмент збірки прошивки; не розповсюджується в складі
   цього репозиторію.
 
+### 2a. ESPHome `web_server` (вендоровано, мінімально пропатчено)
+
+- Джерело: ядро ESPHome, компонент `esphome/components/web_server`.
+- Зафіксована версія: **2025.9.3** (див. `requirements-build.lock`).
+- Ліцензія: MIT (ядро ESPHome).
+- Розташування в цьому проєкті: `firmware/components/web_server/`.
+- Роль і причина вендорингу: побайтова копія pinned-компонента з ВИМКНЕНИМ SSE
+  event source (`DeferredUpdateEventSource`). Його безперервна JSON-серіалізація
+  у `loop()` під Bluedroid BLE вичерпувала heap (ArduinoJson `operator new` →
+  `abort()` → boot-loop → SAFE MODE). У 2025.9.3 немає YAML-опції вимкнути event
+  source, тож його вимкнено у C++. Per-entity REST та auth не змінені.
+- Детальна атрибуція і список правок — `firmware/components/web_server/UPSTREAM.md`.
+
 ## 3. MajorDoMo
 
 - https://github.com/sergejey/majordomo

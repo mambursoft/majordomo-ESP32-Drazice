@@ -26,30 +26,67 @@ globals:
     type: uint32_t
     restore_value: no
     initial_value: '0'
+  # Кешований LED-режим: 0 = все добре, 1 = немає Wi-Fi/BLE, 2 = потрібен PIN.
+  # Його оновлюємо ДЕШЕВО — лише коли змінився рядок boiler_state (а не три
+  # std::string.find() щосекунди у гарячому loop()).
+  - id: status_led_mode
+    type: uint8_t
+    restore_value: no
+    initial_value: '1'
+  # Останній побачений покажчик на C-рядок boiler_state (для дешевого
+  # change-detect: порівнюємо c_str() та довжину, без копіювання/пошуку).
+  - id: status_led_last_bstate_ptr
+    type: const char *
+    restore_value: no
+    initial_value: 'nullptr'
+  - id: status_led_last_bstate_len
+    type: size_t
+    restore_value: no
+    initial_value: '0'
 
 interval:
   - interval: 1s
     then:
-      - lambda: 'id(status_led_tick) += 1;'
-      - if:
-          condition:
-            lambda: |-
-              uint32_t t = id(status_led_tick);
-              // Поточний стан системи.
-              bool wifi_ok = network::is_connected();
-              std::string bstate = id(boiler_state).state;   // стан BLE бойлера
-              bool need_pin = (bstate.find("PIN") != std::string::npos) ||
-                              (bstate.find("Require") != std::string::npos);
-              bool ble_connected = (bstate.find("Connected") != std::string::npos);
+      - lambda: |-
+          id(status_led_tick) += 1;
 
-              if (need_pin) {
-                return true;                 // кожну секунду — помітно
-              }
-              if (!wifi_ok || !ble_connected) {
-                return (t % 4 == 0);         // раз на ~4 с
-              }
-              return (t % 16 == 0);          // усе добре — раз на ~16 с
-          then:
-            - output.turn_on: status_led_out
-            - delay: 60ms
-            - output.turn_off: status_led_out
+          // --- Дешевий перерахунок LED-режиму ТІЛЬКИ при зміні boiler_state ---
+          // Один cheap guard замість трьох .find() щосекунди: зазвичай рядок не
+          // змінюється, тож .find() не виконується взагалі.
+          const std::string &bs = id(boiler_state).state;
+          if (bs.c_str() != id(status_led_last_bstate_ptr) ||
+              bs.size() != id(status_led_last_bstate_len)) {
+            id(status_led_last_bstate_ptr) = bs.c_str();
+            id(status_led_last_bstate_len) = bs.size();
+            bool need_pin = (bs.find("PIN") != std::string::npos) ||
+                            (bs.find("Require") != std::string::npos);
+            bool ble_connected = (bs.find("Connected") != std::string::npos);
+            if (need_pin) {
+              id(status_led_mode) = 2;
+            } else if (!ble_connected) {
+              id(status_led_mode) = 1;
+            } else {
+              id(status_led_mode) = 0;
+            }
+          }
+
+          // --- Гарячий шлях: лише цілі та network::is_connected() ---
+          uint32_t t = id(status_led_tick);
+          uint8_t mode = id(status_led_mode);
+          bool wifi_ok = network::is_connected();
+          bool blink;
+          if (mode == 2) {
+            blink = true;                 // потрібен PIN — щосекунди (помітно)
+          } else if (mode == 1 || !wifi_ok) {
+            blink = (t % 4 == 0);         // немає Wi-Fi/BLE — раз на ~4 с
+          } else {
+            blink = (t % 16 == 0);        // усе добре — раз на ~16 с
+          }
+
+          if (blink) {
+            id(status_led_out)->turn_on();
+            // Неблокуюче вимкнення через 60 мс (battery-friendly, не блокує loop).
+            App.scheduler.set_timeout((Component *) nullptr, "status_led_blink", 60, []() {
+              id(status_led_out)->turn_off();
+            });
+          }

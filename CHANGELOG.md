@@ -3,6 +3,50 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.4.0] — 2026-11-04
+
+### Виправлено
+
+- **ESP32 падав у boot loop → SAFE MODE, порт 80 `Connection refused`.**
+  Справжня причина (підтверджена серійним логом із backtrace): web_server
+  постійно серіалізував стан усіх сенсорів у JSON у фоні
+  (`DeferredUpdateEventSource` / SSE), а під BLE-стеком Bluedroid
+  (`esp32_ble_tracker` + `ble_client`) бракувало вільного heap — ArduinoJson
+  не міг виділити памʼять (`[E][json:044]: Could not allocate memory for JSON
+  document!`), кидав C++ виняток → `abort()` → перезавантаження → ESPHome
+  фіксував boot loop і вмикав SAFE MODE (де web_server не піднімається). Це
+  пояснює і попередній `Empty reply`, і `Connection refused`.
+- Рішення: **вендоровано web_server 2025.9.3** у
+  `firmware/components/web_server/`; `WebServer::loop()` зроблено no-op, а
+  маршрут `/events` повертає 404 (SSE більше не створюється). Пер-ентіті REST
+  (`GET /sensor,/binary_sensor,/text_sensor,/number,/select`, `POST .../set`,
+  натискання кнопок) і HTTP-auth збережені без змін; web_server лишається
+  `version: 2`. Атрибуція — `firmware/components/web_server/UPSTREAM.md` та
+  `THIRD_PARTY_NOTICES.md`.
+
+### Додано
+
+- **Індикація активності на LED**: світлодіод статусу коротко блимає (~50 мс,
+  неблокуюче) на **кожен вхідний HTTP-запит** до плати — через хук у
+  вендорованому web_server (`set_web_activity_led_hook`, перший рядок
+  `handleRequest`), крім економного heartbeat. Пін налаштовний через
+  `status_led_pin` / `status_led_inverted`.
+
+### Змінено
+
+- `status_led.yaml`: прибрано три щосекундні `std::string.find()` з гарячого
+  loop (кеш режиму LED, перерахунок лише при зміні `boiler_state`); патерни
+  блимання збережено (1 с / ~4 с / ~16 с), гасіння тепер неблокуюче.
+- Примітка в `network.yaml` щодо взаємодії `wifi reboot_timeout: 0s` із
+  виявленням boot loop у safe_mode (лише коментар, без зміни поведінки).
+
+### Примітка про NimBLE
+
+- Перехід BLE на NimBLE **не застосовано**: у pinned ESPHome 2025.9.3 NimBLE
+  відсутній (єдиний стек — Bluedroid), а вендорений `smartboiler` напряму
+  використовує Bluedroid GATT-C API. Памʼять вивільнено усуненням справжнього
+  споживача (фонова SSE-серіалізація), а не неіснуючим механізмом.
+
 ## [1.3.3] — 2026-11-04
 
 ### Додано

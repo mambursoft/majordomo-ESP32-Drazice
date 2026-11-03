@@ -41,6 +41,7 @@ Thumbs.db
 compile*.log
 compile*_result.txt
 *_result.txt
+tmp_*.txt
 gitst.txt
 prog.txt
 zz.txt

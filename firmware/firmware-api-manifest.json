@@ -2,13 +2,14 @@
   "schema_version": 1,
   "api_schema_version": 1,
   "generator": "majordomo-ESP32-Drazice firmware",
-  "note": "Назви entity остаточно фіксуються ПІСЛЯ `esphome compile` і REST-тесту. HTTP-шлях ESPHome web_server v3 кодує ім'я entity за сегментами (пробіли -> %20). Модуль MajorDoMo читає value з JSON, а не парсить рядок.",
+  "note": "Назви entity остаточно фіксуються ПІСЛЯ `esphome compile` і REST-тесту. HTTP-шлях ESPHome web_server v2 кодує ім'я entity за сегментами (пробіли -> %20). Модуль MajorDoMo читає value з JSON, а не парсить рядок.",
   "esphome": {
     "pinned_version": "2025.9.3",
     "pin_window_note": "smartboiler upstream сумісний лише з ESPHome 2025.5..2025.10 (climate_schema/number_schema/select_schema). Не підіймати до 2025.11+.",
     "board": "esp32dev",
     "framework": "arduino",
-    "web_server_version": 3,
+    "web_server_version": 2,
+    "web_server_override": "firmware/components/web_server — vendored pinned-копія 2025.9.3 з ВИМКНЕНИМ SSE event source (/events -> 404, loop() no-op) заради економії heap під Bluedroid BLE. Per-entity REST GET/POST (/sensor/.., /binary_sensor/.., /text_sensor/.., /number/../set, /select/../set, button press) і auth НЕ змінені; контракт entity (назви, домени, writable) не зачеплено.",
     "auth": "http-basic-or-digest (перевірити у pin-версії)"
   },
   "upstream": {

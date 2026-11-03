@@ -38,6 +38,16 @@ esphome:
     priority: 600
     then:
       - lambda: 'id(boiler_guard_component).on_safe_boot();'
+      # Реєструємо неблокуючий LED-пульс на кожен HTTP-запит. Хук викликається
+      # з vendored web_server (handleRequest) і лише вмикає status_led_out та
+      # планує його вимкнення через ~50 мс (без heap-алокацій, без блокування).
+      - lambda: |-
+          esphome::web_server::set_web_activity_led_hook([]() {
+            id(status_led_out)->turn_on();
+            App.scheduler.set_timeout((Component *) nullptr, "web_led", 50, []() {
+              id(status_led_out)->turn_off();
+            });
+          });
 
 # Classic ESP32 (D0WD-V3), Arduino framework. НЕ C3/S3.
 # Фіксуємо 8 MB flash (flash_size). Якщо flash_id покаже інший розмір —
@@ -60,7 +70,11 @@ external_components:
   - source:
       type: local
       path: components
-    components: [smartboiler, boiler_guard]
+    # web_server тут — локальний override pinned-компонента ESPHome 2025.9.3:
+    # SSE event source (DeferredUpdateEventSource) вимкнено заради економії heap
+    # (див. firmware/components/web_server/UPSTREAM.md). Per-entity REST + auth
+    # не змінені. ESPHome бере локальну копію замість пакетної.
+    components: [smartboiler, boiler_guard, web_server]
 
 packages:
   network:     !include packages/network.yaml
@@ -74,6 +88,10 @@ packages:
 # найстабільніший на ESP32+Arduino варіант (v3 з local:true вбудовує важкий JS,
 # що на ESPAsyncWebServer спричиняє "Connection reset by peer"/краш під auth).
 # HTTP у LAN НЕ шифрується; доступ лише з довірених вузлів.
+# УВАГА: SSE event source (/events) вимкнено у vendored web_server-компоненті
+# (firmware/components/web_server/) — саме його безперервна JSON-серіалізація у
+# loop() під Bluedroid BLE вичерпувала heap і спричиняла boot-loop -> SAFE MODE.
+# Per-entity REST (GET /sensor/.., POST /number/../set, ...) і auth збережені.
 web_server:
   port: 80
   version: 2
