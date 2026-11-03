@@ -2,7 +2,7 @@
   "name": "drazice_smart",
   "title": "Drazice SMART Boiler",
   "module_name": "drazice_smart",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "category": "devices",
   "author": "mambursoft",
   "support": "https://github.com/mambursoft/majordomo-ESP32-Drazice",

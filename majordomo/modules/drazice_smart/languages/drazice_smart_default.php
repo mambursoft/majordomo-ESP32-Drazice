@@ -145,8 +145,10 @@ $dictionary = array(
 
     'DS_TAR_INTRO'       => 'The cheap (night) tariff is computed from the meter clock.',
     'DS_TIMEZONE'        => 'Timezone',
-    'DS_CHEAP_START'     => 'Cheap start (hour)',
-    'DS_CHEAP_END'       => 'Cheap end (hour)',
+    'DS_CHEAP_START'     => 'Cheap start',
+    'DS_CHEAP_END'       => 'Cheap end',
+    'DS_HOUR_SHORT'      => 'h',
+    'DS_MIN_SHORT'       => 'min',
     'DS_METER_OFFSET'    => 'Meter clock offset (s)',
     'DS_START_GUARD'     => 'Start guard (s)',
     'DS_END_GUARD'       => 'End guard (s)',

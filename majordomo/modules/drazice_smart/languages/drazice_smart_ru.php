@@ -145,8 +145,10 @@ $dictionary = array(
 
     'DS_TAR_INTRO'       => 'Льготный (ночной) тариф считается по часам счётчика.',
     'DS_TIMEZONE'        => 'Часовой пояс',
-    'DS_CHEAP_START'     => 'Начало льготы (час)',
-    'DS_CHEAP_END'       => 'Конец льготы (час)',
+    'DS_CHEAP_START'     => 'Начало льготы',
+    'DS_CHEAP_END'       => 'Конец льготы',
+    'DS_HOUR_SHORT'      => 'час',
+    'DS_MIN_SHORT'       => 'мин',
     'DS_METER_OFFSET'    => 'Погрешность часов счётчика (с)',
     'DS_START_GUARD'     => 'Отступ в начале (с)',
     'DS_END_GUARD'       => 'Отступ в конце (с)',

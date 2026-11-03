@@ -155,8 +155,10 @@ $dictionary = array(
     // Tariff tab
     'DS_TAR_INTRO'       => 'Пільговий (нічний) тариф рахується за годинником лічильника.',
     'DS_TIMEZONE'        => 'Часовий пояс',
-    'DS_CHEAP_START'     => 'Початок пільги (год)',
-    'DS_CHEAP_END'       => 'Кінець пільги (год)',
+    'DS_CHEAP_START'     => 'Початок пільги',
+    'DS_CHEAP_END'       => 'Кінець пільги',
+    'DS_HOUR_SHORT'      => 'год',
+    'DS_MIN_SHORT'       => 'хв',
     'DS_METER_OFFSET'    => 'Похибка годинника лічильника (с)',
     'DS_START_GUARD'     => 'Відступ на початку (с)',
     'DS_END_GUARD'       => 'Відступ у кінці (с)',

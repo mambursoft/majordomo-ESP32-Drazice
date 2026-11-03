@@ -239,7 +239,9 @@ class drazice_smart extends module
             // tariff
             'TIMEZONE'             => 'Europe/Kyiv',
             'CHEAP_START_HOUR'     => 23,
-            'CHEAP_END_HOUR'       => 7,
+            'CHEAP_START_MIN'      => 5,
+            'CHEAP_END_HOUR'       => 6,
+            'CHEAP_END_MIN'        => 55,
             'METER_OFFSET_SECONDS' => 0,
             'START_GUARD_SECONDS'  => 120,
             'END_GUARD_SECONDS'    => 120,
@@ -409,7 +411,9 @@ EOD;
         $tariff = Tariff::evaluate($now, array(
             'timezone'            => $this->config['TIMEZONE'],
             'cheap_start_hour'    => $this->config['CHEAP_START_HOUR'],
+            'cheap_start_min'     => isset($this->config['CHEAP_START_MIN']) ? $this->config['CHEAP_START_MIN'] : 0,
             'cheap_end_hour'      => $this->config['CHEAP_END_HOUR'],
+            'cheap_end_min'       => isset($this->config['CHEAP_END_MIN']) ? $this->config['CHEAP_END_MIN'] : 0,
             'meter_offset_seconds' => $this->config['METER_OFFSET_SECONDS'],
             'start_guard_seconds' => $this->config['START_GUARD_SECONDS'],
             'end_guard_seconds'   => $this->config['END_GUARD_SECONDS'],
@@ -984,6 +988,26 @@ EOD;
         foreach ($diag as $k => $v) {
             $out['DG_' . $k] = ($v === null || $v === '') ? '—' : $v;
         }
+
+        // Property-binding dropdowns: build <select> option lists in PHP (the
+        // simple template parser can't do "selected if equals current" inside a
+        // [#begin#] loop). When the property list is empty (no DB/objects), the
+        // template falls back to a free-text input (HAS_PROPERTIES=0).
+        $props = $this->allProperties();
+        $out['HAS_PROPERTIES'] = (!empty($props)) ? 1 : 0;
+        $bindFields = array(
+            'SOC_PROPERTY', 'POWER_PROPERTY', 'FORECAST_TODAY_PROP',
+            'FORECAST_TOMORROW_PROP', 'FORECAST_UPDATED_PROP', 'FORECAST_PROVIDER_PROP',
+        );
+        foreach ($bindFields as $f) {
+            $cur = isset($this->config[$f]) ? (string) $this->config[$f] : '';
+            $out['OPTS_' . $f] = $this->propertyOptionsHtml($props, $cur);
+        }
+
+        // Timezone dropdown (always available from PHP's identifier list).
+        $out['OPTS_TIMEZONE'] = $this->timezoneOptionsHtml(
+            isset($this->config['TIMEZONE']) ? (string) $this->config['TIMEZONE'] : ''
+        );
     }
 
     /**
@@ -1134,7 +1158,7 @@ EOD;
         $fields = array(
             'ESP_HOST','ESP_PORT','ESP_USER','ESP_PASS','ESP_DIGEST','POLL_INTERVAL_S',
             'COMFORT_MIN_C','NIGHT_TARGET_C','SOLAR_TARGET_C','BOOST_TARGET_C','ABSOLUTE_MAX_C',
-            'TIMEZONE','CHEAP_START_HOUR','CHEAP_END_HOUR','METER_OFFSET_SECONDS',
+            'TIMEZONE','CHEAP_START_HOUR','CHEAP_START_MIN','CHEAP_END_HOUR','CHEAP_END_MIN','METER_OFFSET_SECONDS',
             'START_GUARD_SECONDS','END_GUARD_SECONDS','MAX_CONTINUOUS_HEAT_S','MIN_PAUSE_S','ALLOW_BATTERY_HEAT',
             'LEASE_TTL_S','COMMAND_TIMEOUT_S','POWER_PROPERTY','BATTERY_ACTIVE_VALUE',
             'POWER_FRESHNESS_TTL_S','SOLAR_SURPLUS_ENABLED','SOC_PROPERTY','SURPLUS_SOC_HIGH',
@@ -1283,6 +1307,142 @@ EOD;
             }
         }
         return $out;
+    }
+
+    /**
+     * Read-only list of ALL MajorDoMo object properties as a flat list of
+     * "ObjectTitle.PropertyTitle" strings, sorted alphabetically and unique.
+     * Modelled on discoverProperties() but WITHOUT the keyword filter.
+     * Returns an empty array when the DB/objects are not available (headless
+     * / tests) so the admin form can fall back to free-text inputs.
+     */
+    public function allProperties()
+    {
+        $out = array();
+        if (!function_exists('SQLSelect')) {
+            return $out;
+        }
+        $rows = SQLSelect("SELECT o.TITLE AS OBJ, p.TITLE AS PROP
+            FROM pvalues pv
+            LEFT JOIN objects o ON o.ID = pv.OBJECT_ID
+            LEFT JOIN properties p ON p.ID = pv.PROPERTY_ID
+            WHERE o.TITLE IS NOT NULL AND p.TITLE IS NOT NULL
+            ORDER BY o.TITLE, p.TITLE");
+        if (!is_array($rows)) {
+            return $out;
+        }
+        $seen = array();
+        foreach ($rows as $r) {
+            $name = $r['OBJ'] . '.' . $r['PROP'];
+            if (!isset($seen[$name])) {
+                $seen[$name] = true;
+                $out[] = $name;
+            }
+        }
+        sort($out, SORT_STRING | SORT_FLAG_CASE);
+        return $out;
+    }
+
+    /**
+     * Build the inner HTML of a <select> for a property-binding field: an empty
+     * first option (so "not bound" is possible) plus one <option> per property,
+     * with the currently-configured value marked selected. If $current is not
+     * present in $props it is still added (and selected) so a stored value is
+     * never lost.
+     *
+     * @param array  $props   flat list of "Object.Property" strings
+     * @param string $current currently configured value
+     * @return string
+     */
+    private function propertyOptionsHtml($props, $current)
+    {
+        $current = (string) $current;
+        $html = '<option value="">—</option>';
+        $found = false;
+        foreach ($props as $name) {
+            $sel = ($name === $current) ? ' selected' : '';
+            if ($sel !== '') {
+                $found = true;
+            }
+            $html .= '<option value="' . htmlspecialchars($name, ENT_QUOTES) . '"' . $sel . '>'
+                . htmlspecialchars($name, ENT_QUOTES) . '</option>';
+        }
+        if (!$found && $current !== '') {
+            $html .= '<option value="' . htmlspecialchars($current, ENT_QUOTES) . '" selected>'
+                . htmlspecialchars($current, ENT_QUOTES) . '</option>';
+        }
+        return $html;
+    }
+
+    /**
+     * Best-effort read of the MajorDoMo system timezone. MajorDoMo stores it in
+     * settings; try getGlobal('TimeZone')/SETTINGS, then PHP's default. Returns
+     * '' when nothing reliable is found.
+     */
+    private function systemTimezone()
+    {
+        $candidates = array();
+        if (function_exists('getGlobal')) {
+            $g = getGlobal('TimeZone');
+            if (is_string($g) && $g !== '') {
+                $candidates[] = $g;
+            }
+        }
+        if (function_exists('SQLSelectOne')) {
+            $rec = SQLSelectOne("SELECT VALUE FROM settings WHERE NAME='TimeZone'");
+            if (is_array($rec) && isset($rec['VALUE']) && $rec['VALUE'] !== '') {
+                $candidates[] = $rec['VALUE'];
+            }
+        }
+        $d = @date_default_timezone_get();
+        if (is_string($d) && $d !== '') {
+            $candidates[] = $d;
+        }
+        foreach ($candidates as $tz) {
+            try {
+                new \DateTimeZone($tz);
+                return $tz;
+            } catch (\Exception $e) {
+                // try next candidate
+            }
+        }
+        return '';
+    }
+
+    /**
+     * Build the inner HTML of the timezone <select>: the current configured
+     * value (or MajorDoMo's system timezone, else Europe/Kyiv) is preselected,
+     * populated from PHP's timezone identifier list.
+     *
+     * @param string $current currently configured TIMEZONE value
+     * @return string
+     */
+    private function timezoneOptionsHtml($current)
+    {
+        $current = (string) $current;
+        if ($current === '') {
+            $sys = $this->systemTimezone();
+            $current = ($sys !== '') ? $sys : 'Europe/Kyiv';
+        }
+        $zones = \DateTimeZone::listIdentifiers();
+        if (!is_array($zones) || empty($zones)) {
+            $zones = array('Europe/Kyiv', 'UTC');
+        }
+        $html = '';
+        $found = false;
+        foreach ($zones as $tz) {
+            $sel = ($tz === $current) ? ' selected' : '';
+            if ($sel !== '') {
+                $found = true;
+            }
+            $html .= '<option value="' . htmlspecialchars($tz, ENT_QUOTES) . '"' . $sel . '>'
+                . htmlspecialchars($tz, ENT_QUOTES) . '</option>';
+        }
+        if (!$found && $current !== '') {
+            $html = '<option value="' . htmlspecialchars($current, ENT_QUOTES) . '" selected>'
+                . htmlspecialchars($current, ENT_QUOTES) . '</option>' . $html;
+        }
+        return $html;
     }
 
     // ---- CSRF ---------------------------------------------------------------

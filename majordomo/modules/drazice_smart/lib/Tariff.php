@@ -21,7 +21,8 @@ class Tariff
     /**
      * @param int    $nowUtc            unix timestamp (UTC)
      * @param array  $cfg               keys: timezone, cheap_start_hour,
-     *                                   cheap_end_hour, meter_offset_seconds,
+     *                                   cheap_start_min, cheap_end_hour,
+     *                                   cheap_end_min, meter_offset_seconds,
      *                                   start_guard_seconds, end_guard_seconds
      * @return array  active(bool), reason(string), meter_local(string)
      */
@@ -30,6 +31,10 @@ class Tariff
         $tz = isset($cfg['timezone']) ? $cfg['timezone'] : 'Europe/Kyiv';
         $startHour = isset($cfg['cheap_start_hour']) ? (int) $cfg['cheap_start_hour'] : 23;
         $endHour = isset($cfg['cheap_end_hour']) ? (int) $cfg['cheap_end_hour'] : 7;
+        // Minute components default to 0 when absent -> fully backward
+        // compatible with hour-only callers/config.
+        $startMin = isset($cfg['cheap_start_min']) ? (int) $cfg['cheap_start_min'] : 0;
+        $endMin = isset($cfg['cheap_end_min']) ? (int) $cfg['cheap_end_min'] : 0;
         $offset = isset($cfg['meter_offset_seconds']) ? (int) $cfg['meter_offset_seconds'] : 0;
         $startGuard = isset($cfg['start_guard_seconds']) ? (int) $cfg['start_guard_seconds'] : 0;
         $endGuard = isset($cfg['end_guard_seconds']) ? (int) $cfg['end_guard_seconds'] : 0;
@@ -49,12 +54,15 @@ class Tariff
             + ((int) $dt->format('i')) * 60
             + ((int) $dt->format('s'));
 
-        $startSec = $startHour * 3600 + $startGuard;        // start later by guard
-        $endSec = $endHour * 3600 - $endGuard;              // end earlier by guard
+        // Window edges in seconds-of-day (hour*3600 + min*60), with guards.
+        $startEdge = $startHour * 3600 + $startMin * 60;
+        $endEdge = $endHour * 3600 + $endMin * 60;
+        $startSec = $startEdge + $startGuard;               // start later by guard
+        $endSec = $endEdge - $endGuard;                     // end earlier by guard
 
         $active = false;
-        if ($startHour > $endHour) {
-            // Crosses midnight, e.g. 23 -> 7.
+        if ($startEdge > $endEdge) {
+            // Crosses midnight, e.g. 23:05 -> 06:55. Compare by seconds-of-day.
             $active = ($secondsOfDay >= $startSec) || ($secondsOfDay < $endSec);
         } else {
             $active = ($secondsOfDay >= $startSec) && ($secondsOfDay < $endSec);
