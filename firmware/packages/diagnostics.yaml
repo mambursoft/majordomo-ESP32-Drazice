@@ -28,10 +28,10 @@ sensor:
 text_sensor:
   - platform: template
     name: "ESP Reset Reason"
-    id: esp_reset_reason
+    id: esp_reset_cause
     update_interval: 60s
     lambda: |-
-      switch (esp_reset_reason()) {
+      switch (::esp_reset_reason()) {
         case ESP_RST_POWERON:  return {"power_on"};
         case ESP_RST_SW:       return {"software"};
         case ESP_RST_PANIC:    return {"panic"};

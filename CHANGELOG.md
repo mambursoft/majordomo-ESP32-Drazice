@@ -3,6 +3,38 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.1.0] — 2026-11-01
+
+### Змінено
+
+- **Компонент smartboiler вендоровано** (включено в репо,
+  `firmware/components/smartboiler/`) з **дозволу автора upstream** LubosD.
+  Раніше підключався через `external_components: git`. Збірка тепер
+  відтворювана і не залежить від доступності зовнішнього репо. Атрибуція —
+  `firmware/components/smartboiler/UPSTREAM.md`, `THIRD_PARTY_NOTICES.md`.
+- Прибрано застереження «ліцензія upstream невідома» з README і NOTICES.
+- **Прошивку реально зібрано** (`esphome compile`), а не лише валідовано:
+  створюються `firmware.factory.bin` і `firmware.ota.bin`.
+
+### Виправлено
+
+- Колізія id `esp_reset_reason` із системною функцією ESP-IDF, що ламала
+  компіляцію (`redeclared as different kind of entity`). Перейменовано на
+  `esp_reset_cause`; виклик через `::esp_reset_reason()`.
+
+### Усунено «відкриті моменти»
+
+- **Пошук BLE MAC бойлера без здогадок**: діагностична прошивка
+  `firmware/boiler-scan.yaml` + пакет `packages/ble_scan.yaml` сканують ефір,
+  логують усі пристрої та позначають «схоже на бойлер». Більше не треба знати
+  MAC заздалегідь.
+- **Механізм паузи реалізовано** (не BLOCKED): при cooldown guard перемикає
+  бойлер у ANTIFREEZE + target 40 °C і **верифікує** фактичний Heat=false;
+  інакше FAULT. Best-effort через BLE (не safety-rated).
+- **Присутність стійка до рандомізації MAC**: пакет `packages/presence.yaml`
+  додає визначення за стабільним **iBeacon UUID** (надійно, не залежить від
+  рандомного MAC) поряд з визначенням за MAC.
+
 ## [1.0.0] — 2026-11-01
 
 Перша публічна версія.

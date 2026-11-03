@@ -1,0 +1,12 @@
+# Partition table для ESP32 з 8 MB (0x800000) Flash.
+# Два OTA-слоти по ~3 MB (достатньо для образу ~1.9 MB із запасом) + NVS + coredump.
+# Застосовується через esp32.partitions у boiler-weact.yaml ПІСЛЯ підтвердження
+# flash_id = 8 MiB. Якщо на вашій платі інший розмір — не використовуйте цей файл.
+# Name,     Type, SubType, Offset,   Size,    Flags
+nvs,        data, nvs,     0x9000,   0x5000,
+otadata,    data, ota,     0xe000,   0x2000,
+app0,       app,  ota_0,   0x10000,  0x300000,
+app1,       app,  ota_1,   0x310000, 0x300000,
+nvs_key,    data, nvs_keys,0x610000, 0x1000,
+coredump,   data, coredump,0x611000, 0xF000,
+spiffs,     data, spiffs,  0x620000, 0x1E0000,

@@ -131,9 +131,14 @@ void BoilerGuard::enter_cooldown_(const std::string &reason) {
   this->cooldown_until_s_ = this->now_s_() + this->min_pause_s_;
   this->pending_since_s_ = this->now_s_();
   this->save_durable_();
-  // Запитуємо перевірену паузу: знижуємо target до мінімуму (best-effort).
-  // УВАГА: це НЕ гарантує фізичного stop (STOP недоступний). Реальну зупинку
-  // підтверджуємо лише за Heat=false.
+  // Найсильніша доступна стратегія паузи через BLE-протокол (STOP недоступний):
+  //   1) перемикаємо режим у ANTIFREEZE — мінімальне енергоспоживання/захист;
+  //   2) знижуємо target до мінімуму (40 °C).
+  // УВАГА: це НЕ гарантує фізичного вимкнення ТЕНу. Реальну зупинку
+  // ПІДТВЕРДЖУЄМО лише за фактичним Heat=false протягом debounce. Якщо Heat не
+  // впав у межах command_timeout — переходимо у FAULT (див. loop()), а НЕ
+  // вважаємо паузу виконаною.
+  this->apply_mode_to_boiler_("ANTIFREEZE");
   this->apply_target_to_boiler_(40.0f);
   this->set_state_(GuardState::PAUSE_REQUESTED, reason);
   this->set_state_(GuardState::COOLDOWN, reason);

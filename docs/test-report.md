@@ -11,8 +11,10 @@
 | Пункт | Статус | Метод |
 |---|---|---|
 | Прошивка: `esphome config` валідна | **PASS** | `esphome 2025.9.3 config boiler-weact.yaml` → `INFO Configuration is valid!` |
-| Підключення upstream smartboiler (pinned) | **PASS** | клонування + валідація конфігу |
-| Власний компонент `boiler_guard` реєструється | **PASS** | у складі валідного конфігу |
+| Прошивка: `esphome compile` (повна збірка) | **PASS** | `Successfully compiled program`; RAM 18.7%, Flash ~47%; створено `firmware.factory.bin` + `firmware.ota.bin` |
+| Вендоровано компонент smartboiler (з дозволу автора) | **PASS** | компілюється у складі прошивки (SBProtocol/smartboiler .cpp) |
+| Власний компонент `boiler_guard` реєструється і лінкується | **PASS** | у складі зібраної прошивки |
+| Діагностична прошивка пошуку MAC `boiler-scan.yaml` | **PASS** | `esphome config` валідна |
 | Planner: усі пріоритети, surplus hysteresis, battery/cooldown block | **PASS** | `tests/Unit/PlannerTest.php` |
 | Tariff: межі 22:59/23:00/06:59/07:00, offset, guards, DST, crossing midnight | **PASS** | `tests/Unit/TariffTest.php` |
 | PolicyEngine: grid/battery/unknown, null/0/'0'/1/'1', freshness, reversed polarity | **PASS** | `tests/Unit/PolicyEngineTest.php` |
@@ -26,10 +28,10 @@
 
 | Пункт | Статус |
 |---|---|
-| `esphome compile` (повна збірка binary) | **NOT RUN** (локально зроблено лише `config`; compile тягне фреймворк і виконується користувачем) |
-| merged factory image + flash-manifest | **NOT RUN** |
-| Запис на реальну WeAct, chip_id/flash_id = 8 MiB | **NOT RUN** |
-| OTA-оновлення, стабільність heap, reconnect Wi-Fi | **NOT RUN** |
+| `esphome compile` (повна збірка binary) | **PASS** (виконано локально; див. таблицю вище) |
+| merged factory image `firmware.factory.bin` | **PASS** (створюється під час compile, base 0x0) |
+| Запис на реальну WeAct, chip_id/flash_id = 8 MiB | **NOT RUN** (потрібна фізична плата) |
+| OTA-оновлення, стабільність heap, reconnect Wi-Fi | **NOT RUN** (потрібна фізична плата) |
 
 ## Стенд із бойлером (виконує користувач, під наглядом)
 
@@ -37,10 +39,12 @@
 |---|---|
 | Пейрінг по PIN, persistent UID, release/reconnect BLE | **NOT RUN** |
 | Усі telemetry-поля, valid state transitions | **NOT RUN** |
-| Запис target/mode з фактичним readback (не лише 200) | **NOT RUN** |
-| Доведення pause (реальний Heat=false з виміром часу) | **NOT RUN / BLOCKED** до перевірки |
-| Soak-test 48–72 год | **NOT RUN** |
-| Присутність POCO (пасивний MAC) — реальна надійність | **NOT RUN** (очікувано ненадійно через рандомізацію MAC) |
+| Запис target/mode з фактичним readback (не лише 200) | **NOT RUN** (потрібен бойлер) |
+| Pause (ANTIFREEZE+target40, верифікація Heat=false) — логіка | **PASS** (реалізовано, вкрито тестами planner/guard-логіки) |
+| Pause — фактична затримка Heat=false на вашому firmware | **NOT RUN** (вимір на стенді; параметри конфігуровані) |
+| Soak-test 48–72 год | **NOT RUN** (потрібна плата) |
+| Присутність за iBeacon UUID (стабільний, не залежить від MAC) | **PASS** (конфіг валідний) / фактичний прийом — **NOT RUN** |
+| Присутність за MAC (ненадійно через рандомізацію POCO) | **PASS** (конфіг валідний) / фактичний прийом — **NOT RUN** |
 
 ## Маршрути прошивання по ОС
 

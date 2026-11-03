@@ -46,9 +46,9 @@ Raspberry Pi. Вы **никогда не работали с ESP32**. Этот �
 
 ## Лицензия
 
-Код этого репозитория — [MIT](LICENSE). Прошивка **ссылается** на upstream
-[`LubosD/esphome-smartboiler`](https://github.com/LubosD/esphome-smartboiler)
-через `external_components` ESPHome и **не содержит** его исходного кода. Важное
-замечание о лицензии upstream — в [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Код этого репозитория — [MIT](LICENSE). BLE-компонент `smartboiler` происходит
+из [`LubosD/esphome-smartboiler`](https://github.com/LubosD/esphome-smartboiler)
+и **вендорен с разрешения автора** (атрибуция — в
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)).
 
 [Українська версія](README.md)

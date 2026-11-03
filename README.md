@@ -75,10 +75,11 @@ tests/         Фікстури й інтеграційні перевірки
 
 ## Ліцензія
 
-Код цього репозиторію — [MIT](LICENSE). Прошивка **посилається** на upstream
-[`LubosD/esphome-smartboiler`](https://github.com/LubosD/esphome-smartboiler)
-через механізм `external_components` ESPHome і **не містить** його вихідного
-коду. Важливе зауваження про ліцензію upstream — у
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+Код цього репозиторію — [MIT](LICENSE). BLE-компонент
+[`smartboiler`](firmware/components/smartboiler/) походить з
+[`LubosD/esphome-smartboiler`](https://github.com/LubosD/esphome-smartboiler) і
+**вендоровано з дозволу автора** (атрибуція —
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) і
+[`firmware/components/smartboiler/UPSTREAM.md`](firmware/components/smartboiler/UPSTREAM.md)).
 
 [English summary](docs/README.en.md) · [Русская версия](README.ru.md)

@@ -31,3 +31,15 @@ Thumbs.db
 
 # Логи
 *.log
+
+# Тимчасові файли збірки/діагностики
+compile*.log
+compile*_result.txt
+*_result.txt
+gitst.txt
+prog.txt
+zz.txt
+err.txt
+metrics.txt
+staged.txt
+SHA256SUMS

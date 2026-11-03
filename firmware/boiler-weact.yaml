@@ -41,22 +41,23 @@ esphome:
 # ВИПРАВИТИ тут і зібрати заново. 8 MB з етикетки НЕ доводить PSRAM.
 esp32:
   board: esp32dev
+  # Плата WeAct має 8 MB flash (підтвердьте flash_id = 8 MiB перед записом).
+  # Дефолтна 4 MB-таблиця дає app-розділ ~1.79 MB, а наш образ ~1.87 MB у нього
+  # НЕ вміщується. Тому задаємо 8 MB flash і власну таблицю (2×OTA по 3 MB).
   flash_size: 8MB
+  partitions: partitions.csv
   framework:
     type: arduino
 
-# ---- Підключення upstream BLE-компонента Drazice (БЕЗ копіювання коду) -------
+# ---- Локальні компоненти ----------------------------------------------------
+# smartboiler вендорено в цьому репо (автор upstream LubosD дав дозвіл на
+# використання коду). Джерело і атрибуція — firmware/components/smartboiler/
+# та THIRD_PARTY_NOTICES.md. boiler_guard — наш власний.
 external_components:
-  - source:
-      type: git
-      url: https://github.com/LubosD/esphome-smartboiler
-      ref: c1b4e18ded8d3de58a19022e5155134982ddeb9a
-    components: [smartboiler]
-  # Наш локальний guard — у цьому ж репозиторії.
   - source:
       type: local
       path: components
-    components: [boiler_guard]
+    components: [smartboiler, boiler_guard]
 
 packages:
   network:     !include packages/network.yaml

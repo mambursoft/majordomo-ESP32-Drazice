@@ -75,6 +75,7 @@ def main():
         "image": "firmware.factory.bin",
         "sha256": sha,
         "esphome_version": "2025.9.3",
+        "upstream_smartboiler": "vendored (with author's permission) from LubosD/esphome-smartboiler@c1b4e18",
         "note": "Offsets taken from platformio flash_args, not guessed. Personalised image: do NOT publish.",
     }
     (ROOT / "flash-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
