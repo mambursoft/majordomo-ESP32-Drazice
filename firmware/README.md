@@ -19,9 +19,38 @@ packages/
 components/
   smartboiler/                 вендоровано з LubosD/esphome-smartboiler (з дозволу)
   boiler_guard/                власний компонент: arbiter, cooldown, lease, readback
+  rest_api/                    власний легкий HTTP REST-сервер (замінив web_server)
 secrets.example.yaml           шаблон секретів (скопіювати у secrets.yaml)
 firmware-api-manifest.json     стабільний контракт для модуля MajorDoMo
 ```
+
+## HTTP API (власний REST-сервер)
+
+Прошивка віддає стан і приймає команди через **власний легкий REST-сервер**
+`components/rest_api/`. Він **замінив** ESPHome `web_server` (разом із
+`ESPAsyncWebServer`, `AsyncTCP`, `ArduinoJson`): навіть після вимкнення SSE той
+вичерпував heap під Bluedroid BLE — вільного heap лишалося ~208 байт, і порт 80
+не обслуговував запити (`Empty reply from server`). Вендорований каталог
+`components/web_server/` **видалено** — його більше немає в репозиторії.
+
+Новий компонент:
+
+- синхронний `WiFiServer`/`WiFiClient` (lwIP), accept-in-loop у `loop()` на
+  головному таску — без окремого FreeRTOS-таску й буферів на з'єднання;
+- запит читається у фіксовані стекові буфери, JSON формується вручну у `char[]`
+  — **без** ArduinoJson і per-request heap-документів;
+- Basic auth (`web_username`/`web_password`); токен `base64(user:pass)`
+  обчислюється один раз у `setup()`, не на кожен запит; невірно/немає → `401`;
+- резолв entity за display-name (`get_name()`); `internal` entity назовні не
+  виставляються — `boiler_guard` не обійти;
+- LED коротко блимає на кожен вхідний HTTP-запит (хук перенесено сюди з
+  колишнього web_server);
+- LAN-only: без mDNS, без SSE/events, без браузерного веб-UI (MajorDoMo читає
+  лише машинне API).
+
+Контракт незмінний: `GET /{domain}/{name}`,
+`POST /{domain}/{name}/set?value=...`, `POST /button/{name}/press`. Повний опис
+полів і entity — `firmware-api-manifest.json`.
 
 ## Збірка (коротко)
 
