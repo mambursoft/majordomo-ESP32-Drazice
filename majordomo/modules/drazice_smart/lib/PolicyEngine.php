@@ -85,6 +85,23 @@ class PolicyEngine
         return $s;
     }
 
+    /**
+     * Validate a pairing PIN as a 1-4 digit string. Leading zeros are kept in
+     * 'display' but the numeric 'value' drops them (e.g. '0692' -> 692). The
+     * new firmware floor of 0 means '0' is a valid value.
+     *
+     * @param mixed $raw
+     * @return array ok(bool), display(string)+value(int) when ok, else reason
+     */
+    public static function validatePin($raw)
+    {
+        $str = trim((string) $raw);
+        if (preg_match('/^[0-9]{1,4}$/', $str)) {
+            return array('ok' => true, 'display' => $str, 'value' => (int) $str);
+        }
+        return array('ok' => false, 'reason' => 'bad_pin');
+    }
+
     /** Validate a SOC value (0..100). Returns float or null. */
     public static function validSoc($raw)
     {

@@ -50,3 +50,35 @@ T::eq(PolicyEngine::validSoc(''), null, 'empty -> null');
 T::eq(PolicyEngine::validSoc('abc'), null, 'non-numeric -> null');
 T::eq(PolicyEngine::validSoc(-5), null, 'negative -> null');
 T::eq(PolicyEngine::validSoc(150), null, 'over 100 -> null');
+
+T::group('PolicyEngine PIN validation');
+
+$p = PolicyEngine::validatePin('0692');
+T::ok($p['ok'], "'0692' -> ok");
+T::eq($p['display'], '0692', "'0692' display preserves leading zero");
+T::eq($p['value'], 692, "'0692' value drops leading zero -> 692");
+
+$p = PolicyEngine::validatePin('692');
+T::ok($p['ok'], "'692' -> ok");
+T::eq($p['value'], 692, "'692' -> value 692");
+
+$p = PolicyEngine::validatePin('1111');
+T::ok($p['ok'], "'1111' -> ok");
+T::eq($p['value'], 1111, "'1111' -> value 1111");
+
+$p = PolicyEngine::validatePin('9999');
+T::ok($p['ok'], "'9999' -> ok");
+T::eq($p['value'], 9999, "'9999' -> value 9999");
+
+$p = PolicyEngine::validatePin('0');
+T::ok($p['ok'], "'0' -> ok");
+T::eq($p['value'], 0, "'0' -> value 0 (allowed by new floor)");
+
+T::eq(PolicyEngine::validatePin('')['ok'], false, "'' -> bad_pin");
+T::eq(PolicyEngine::validatePin('')['reason'], 'bad_pin', "'' -> reason bad_pin");
+T::eq(PolicyEngine::validatePin('abc')['ok'], false, "'abc' -> bad_pin");
+T::eq(PolicyEngine::validatePin('12345')['ok'], false, "5 digits -> bad_pin");
+
+$p = PolicyEngine::validatePin(' 42 ');
+T::ok($p['ok'], "' 42 ' -> ok (trimmed)");
+T::eq($p['value'], 42, "' 42 ' -> value 42");

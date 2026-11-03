@@ -1255,14 +1255,47 @@ EOD;
 
     private function opSendPin()
     {
-        $pin = isset($_REQUEST['pin']) ? (int) $_REQUEST['pin'] : 0;
-        if ($pin < 1111 || $pin > 9999) {
+        $v = PolicyEngine::validatePin(isset($_REQUEST['pin']) ? $_REQUEST['pin'] : '');
+        if (empty($v['ok'])) {
             return array('ok' => false, 'reason' => 'bad_pin');
         }
         $t = $this->makeTransport();
-        // PIN is sensitive: never store it; send once and forget.
-        $res = $t->postSet('number', 'Boiler Pairing PIN', $pin);
-        return array('ok' => ($res !== null), 'error' => $t->getLastError());
+        // PIN is sensitive: send the numeric value once; NEVER store the digits.
+        $res = $t->postSet('number', 'Boiler Pairing PIN', $v['value']);
+
+        // Bounded non-blocking readback of Boiler State: the boiler flips to
+        // "Connected" once it accepts the PIN. Poll a couple of times with a
+        // short total wait so the admin page stays responsive.
+        $state = null;
+        if ($res !== null) {
+            for ($i = 0; $i < 3; $i++) {
+                $state = Transport::stringValue($t->getState('text_sensor', 'Boiler State'));
+                if ($state === 'Connected') {
+                    break;
+                }
+                if ($i < 2) {
+                    usleep(700000); // ~0.7s, total <= ~2.1s
+                }
+            }
+        }
+        $accepted = ($state === 'Connected');
+
+        Repository::saveCommand(array(
+            'ts_utc'     => time(),
+            'command_id' => 'pair',
+            'kind'       => 'pair',
+            'payload'    => '****',
+            'status'     => $accepted ? 'accepted' : ($res !== null ? 'sent' : 'failed'),
+            'detail'     => ($state === null ? '' : $state),
+        ));
+
+        return array(
+            'ok'       => ($res !== null),
+            'accepted' => $accepted,
+            'state'    => $state,
+            'reason'   => ($res !== null ? 'sent' : 'transport'),
+            'error'    => $t->getLastError(),
+        );
     }
 
     private function opButton($name)

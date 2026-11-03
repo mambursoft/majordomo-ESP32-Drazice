@@ -7,7 +7,7 @@
 #   heat_on      -> binary_sensor "Heating"  (= HSRCSTATE==1)
 #   thermostat   -> climate, setpoint 40..80 °C (MIN_TEMP/MAX_TEMP у коді)
 #   consumption  -> sensor "Energy" (kWh, total_increasing)
-#   pin          -> number "Pairing PIN" 1111..9999 (вводити лише у стані Require PIN)
+#   pin          -> number "Pairing PIN" 0..9999 (вводити лише у стані Require PIN)
 #   state        -> text_sensor "State" (Connected/Require PIN/…)
 #   version      -> text_sensor "Version" (fw;board;S/N)
 #   b_name       -> text_sensor "Name"

@@ -100,7 +100,7 @@ async def to_code(config):
 
     if CONF_PIN in config:
         pin_num = cg.new_Pvariable(config[CONF_PIN][CONF_ID])
-        await number.register_number(pin_num, config[CONF_PIN], min_value=1111, max_value=9999, step=1)
+        await number.register_number(pin_num, config[CONF_PIN], min_value=0, max_value=9999, step=1)
         cg.add(var.set_pin_input(pin_num))
         await cg.register_parented(pin_num, var)
 

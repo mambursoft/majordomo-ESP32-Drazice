@@ -40,7 +40,7 @@
     "reconnect_ble":     {"domain": "button",       "name": "Boiler Reconnect BLE","writable": true},
     "guard_state":       {"domain": "text_sensor",  "name": "Boiler Guard State",  "writable": false},
     "guard_reason":      {"domain": "text_sensor",  "name": "Boiler Guard Reason", "writable": false},
-    "pairing_pin":       {"domain": "number",       "name": "Boiler Pairing PIN",  "writable": true, "min": 1111, "max": 9999, "sensitive": true},
+    "pairing_pin":       {"domain": "number",       "name": "Boiler Pairing PIN",  "writable": true, "min": 0, "max": 9999, "sensitive": true},
     "continuous_heat_s": {"domain": "sensor",       "name": "Boiler Continuous Heat Seconds", "unit": "s", "writable": false},
     "cooldown_remaining":{"domain": "sensor",       "name": "Boiler Cooldown Remaining", "unit": "s", "writable": false},
     "lease_remaining":   {"domain": "sensor",       "name": "Boiler Lease Remaining", "unit": "s", "writable": false},
