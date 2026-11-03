@@ -19,6 +19,7 @@ function baseSnap($over = array())
         'is_daytime' => true,
         'tariff_active' => false,
         'boost_active' => false,
+        'boost_allow_battery' => false,
         'surplus_latched' => false,
         'solar_surplus_enabled' => false,
     );
@@ -49,10 +50,29 @@ T::eq($d['allowed'], false, 'cooldown -> not allowed even if cold');
 $d = Planner::decide(baseSnap(array('power_source' => 'unknown', 'temp_upper' => 30.0)), $cfg);
 T::eq($d['reason'], 'power_unknown', 'unknown power -> power_unknown');
 
-// Level 4: battery blocks new heating.
+// Level 4: battery blocks new heating by default.
 $d = Planner::decide(baseSnap(array('power_source' => 'battery', 'temp_upper' => 30.0)), $cfg);
 T::eq($d['reason'], 'battery_source_block', 'battery -> battery_source_block');
 T::eq($d['allowed'], false, 'battery -> not allowed');
+
+// Battery + global allow flag -> heating permitted (comfort), boiler safety kept.
+$cfgAllow = array_merge($cfg, array('allow_battery_heat' => true));
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'temp_upper' => 30.0)), $cfgAllow);
+T::eq($d['allowed'], true, 'battery + allow flag -> heating allowed');
+T::eq($d['reason'], 'comfort_minimum', 'battery + allow -> comfort heat');
+
+// Battery + allow flag but cooldown active -> still blocked (boiler safety wins).
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'in_cooldown' => true, 'cooldown_remaining_s' => 120, 'temp_upper' => 30.0)), $cfgAllow);
+T::eq($d['reason'], 'cooldown_active', 'battery allow does NOT bypass cooldown');
+
+// Battery + boost marked battery-allowed -> boost runs on battery.
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'boost_active' => true, 'boost_allow_battery' => true, 'temp_upper' => 50.0)), $cfg);
+T::eq($d['reason'], 'manual_boost', 'battery + boost_allow_battery -> manual_boost');
+T::eq($d['allowed'], true, 'battery boost allowed -> allowed');
+
+// Battery + boost WITHOUT battery permission -> still blocked.
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'boost_active' => true, 'boost_allow_battery' => false, 'temp_upper' => 50.0)), $cfg);
+T::eq($d['reason'], 'battery_source_block', 'battery + boost without battery-allow -> blocked');
 
 // Level 7: below comfort minimum -> heat.
 $d = Planner::decide(baseSnap(array('temp_upper' => 40.0)), $cfg);

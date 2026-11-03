@@ -88,3 +88,54 @@ guarded REST.
 - сенсоры `.value` / `.status` ← нижний датчик, энергия, SOC, HDO.
 
 Смена `currentTargetValue` в UI → guarded REST → бойлер (с readback).
+
+---
+
+## 3. Единый объект бойлер+ESP (`EspBoiler`)
+
+Модуль ведёт **один объект** `EspBoiler` (имя настраивается, `BOILER_OBJECT`),
+представляющий **бойлер и его ESP32 как одно целое**. В него пишется всё:
+телеметрия бойлера (`tempUpper`, `tempLower`, `heating`, `hdo`, `reportedMode`,
+`energyTotalKwh`, `boilerVersion`…), диагностика ESP (`espUptime`, `espRssi`,
+`guardState`, `cooldownRemaining`, `leaseRemaining`…), планировщик
+(`powerSource`, `batterySoc`, `plannedTarget`, `decisionHuman`…) и присутствие
+(`presentPeople`, `presenceSessionJson`, `presenceEvent`, `presenceEventJson`).
+
+Каждое свойство имеет **описание** (DESCRIPTION). Управляющие свойства помечены
+«⚙ КЕРУВАННЯ» и к ним привязан метод — изменение применяется к бойлеру через
+guarded REST:
+
+| Свойство | Действие |
+|---|---|
+| `requestedTarget`   | Целевая температура, °C (40..80) |
+| `requestedMode`     | Режим: ANTIFREEZE/SMART/PROG/MANUAL |
+| `boost`             | 1 — разовый boost; 0 — отмена |
+| `automationEnabled` | 1/0 — автоматика |
+| `allowBatteryHeat`  | 1 — разрешить нагрев от батарей |
+
+Остальные свойства — только чтение (модуль перезапишет их из ESP).
+
+## 4. Нагрев от батарей (безопасно)
+
+По умолчанию заблокирован. Включите `allowBatteryHeat` или boost с разрешением
+на батарею. Безопасность бойлера (лимит длительного нагрева, cooldown)
+сохраняется — она выше разрешения на батарею.
+
+## 5. Сканер смартфонов, биндинг и события присутствия
+
+Определение — по **Bluetooth** (сканер ESP, источник `ble`) и **Wi-Fi**
+(`EspBoiler.wifiObservationsJson` из arp роутера, источник `wifi`). Биндинг — в
+«Список MAC → имя (JSON)»: `{"aa:bb:..":"Назар"}`.
+
+### События, если ребёнок долго в туалете
+
+| Событие | Когда |
+|---|---|
+| `entered`  | человека впервые увидели (начало сессии) |
+| `long`     | дольше «порога долго» (`PRESENCE_NOTIFY_AFTER_S`) |
+| `too_long` | дольше «порога очень долго» (`PRESENCE_TOO_LONG_AFTER_S`) |
+| `left`     | исчез из эфира (конец сессии) |
+
+Каждое событие вызывает обработчик (`PRESENCE_HANDLER`) с `person/duration_s/
+event`, пишется в объект (`presenceEvent`/`presenceEventJson`) и в таблицу
+`drazice_presence`.

@@ -76,28 +76,42 @@ class Planner
         }
 
         // --- Level 4: power source -------------------------------------------
+        // Note: cooldown / continuous-heat (Level 3 above) ALWAYS win — the
+        // battery allowance never bypasses the boiler's own safety pause.
         $power = isset($s['power_source']) ? $s['power_source'] : 'unknown';
         if ($power === 'unknown') {
             return self::fill($r, 'hold', null, null,
                 'power_unknown', 4, false,
                 'Джерело живлення невідоме — консервативно не запускаємо нагрів.');
         }
-        if ($power === 'battery') {
+
+        // On battery: blocked by default. Allowed only when the user explicitly
+        // opts in — either a global "allow battery heat" flag, or a manual boost
+        // that is marked battery-allowed. Boiler-safety (cooldown) still applies.
+        $onBattery = ($power === 'battery');
+        $allowBattery = !empty($c['allow_battery_heat']);
+        $boostActive = !empty($s['boost_active']);
+        $boostAllowsBattery = !empty($s['boost_allow_battery']);
+        if ($onBattery && !$allowBattery && !($boostActive && $boostAllowsBattery)) {
             return self::fill($r, 'hold', null, null,
                 'battery_source_block', 4, false,
-                'Живлення від батарей — нові пуски нагріву заборонено політикою.');
+                'Живлення від батарей — нові пуски нагріву заборонено політикою. '
+                . 'Увімкніть «Дозволити нагрів від батарей» або boost з дозволом на батарею, якщо справді потрібна тепла вода.');
         }
 
-        // --- Level 6: manual boost (does not bypass 1-4) ---------------------
-        if (!empty($s['boost_active'])) {
+        // --- Level 6: manual boost (does not bypass cooldown/continuous-heat) -
+        if ($boostActive) {
             $bt = isset($c['boost_target_c']) ? (float) $c['boost_target_c'] : $absoluteMax;
             if ($bt > $absoluteMax) {
                 $bt = $absoluteMax;
             }
             if ($s['temp_upper'] < $bt) {
+                $human = 'Активний ручний boost до ' . self::fmt($bt) . ' °C.';
+                if ($onBattery) {
+                    $human .= ' Живлення від батарей — свідомо дозволено користувачем.';
+                }
                 return self::fill($r, 'heat', $bt, 'MANUAL',
-                    'manual_boost', 6, true,
-                    'Активний ручний boost до ' . self::fmt($bt) . ' °C.');
+                    'manual_boost', 6, true, $human);
             }
         }
 

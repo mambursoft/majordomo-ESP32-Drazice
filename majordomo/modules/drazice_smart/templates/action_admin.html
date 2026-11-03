@@ -341,11 +341,13 @@
     <div class="checkbox"><label><input type="checkbox" name="PRESENCE_ENABLED" value="1" [#if PRESENCE_ENABLED="1"#]checked[#endif#]> <#LANG_DS_PR_ENABLE#></label></div>
     <div class="form-group"><label><#LANG_DS_PR_ROSTER#></label><input class="form-control" name="PRESENCE_ROSTER_JSON" value="[#CFG_PRESENCE_ROSTER_JSON#]"><small class="text-muted"><#LANG_DS_H_PR_ROSTER#></small></div>
     <div class="row">
-      <div class="col-md-3 form-group"><label><#LANG_DS_PR_ABSENT#></label><input class="form-control" name="PRESENCE_ABSENT_AFTER_S" value="[#CFG_PRESENCE_ABSENT_AFTER_S#]"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_PR_NOTIFY#></label><input class="form-control" name="PRESENCE_NOTIFY_AFTER_S" value="[#CFG_PRESENCE_NOTIFY_AFTER_S#]"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_PR_RENOTIFY#></label><input class="form-control" name="PRESENCE_RENOTIFY_EVERY_S" value="[#CFG_PRESENCE_RENOTIFY_EVERY_S#]"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_PR_HANDLER#></label><input class="form-control" name="PRESENCE_HANDLER" value="[#CFG_PRESENCE_HANDLER#]"><small class="text-muted"><#LANG_DS_H_PR_HANDLER#></small></div>
+      <div class="col-md-2 form-group"><label><#LANG_DS_PR_ABSENT#></label><input class="form-control" name="PRESENCE_ABSENT_AFTER_S" value="[#CFG_PRESENCE_ABSENT_AFTER_S#]"></div>
+      <div class="col-md-2 form-group"><label><#LANG_DS_PR_NOTIFY#></label><input class="form-control" name="PRESENCE_NOTIFY_AFTER_S" value="[#CFG_PRESENCE_NOTIFY_AFTER_S#]"></div>
+      <div class="col-md-2 form-group"><label><#LANG_DS_PR_TOO_LONG#></label><input class="form-control" name="PRESENCE_TOO_LONG_AFTER_S" value="[#CFG_PRESENCE_TOO_LONG_AFTER_S#]"></div>
+      <div class="col-md-2 form-group"><label><#LANG_DS_PR_RENOTIFY#></label><input class="form-control" name="PRESENCE_RENOTIFY_EVERY_S" value="[#CFG_PRESENCE_RENOTIFY_EVERY_S#]"></div>
+      <div class="col-md-4 form-group"><label><#LANG_DS_PR_HANDLER#></label><input class="form-control" name="PRESENCE_HANDLER" value="[#CFG_PRESENCE_HANDLER#]"><small class="text-muted"><#LANG_DS_H_PR_HANDLER#></small></div>
     </div>
+    <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_PR_EVENTS#></div>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
   [#endif#]

@@ -24,6 +24,7 @@ use DraziceSmart\Repository;
 use DraziceSmart\NetworkScanner;
 use DraziceSmart\Presence;
 use DraziceSmart\SimpleDevices;
+use DraziceSmart\BoilerObject;
 
 class drazice_smart extends module
 {
@@ -39,6 +40,35 @@ class drazice_smart extends module
         $this->title           = 'Drazice SMART Boiler';
         $this->module_category = '<#LANG_SECTION_DEVICES#>';
         $this->checkInstalled();
+        // Ensure DB tables exist even if the module was marked "installed" by an
+        // earlier (broken) build that failed before dbInstall ran. CREATE TABLE
+        // IF NOT EXISTS is cheap and idempotent, so this is safe on every load.
+        $this->ensureTables();
+    }
+
+    /** True if a DB table exists. Defensive against missing-table SQL errors. */
+    private function tableExists($table)
+    {
+        if (!function_exists('SQLSelectOne')) {
+            return false;
+        }
+        $rec = SQLSelectOne("SHOW TABLES LIKE '" . $table . "'");
+        return is_array($rec) && !empty($rec);
+    }
+
+    /** Create module tables if any is missing (idempotent). */
+    private function ensureTables()
+    {
+        if (!function_exists('SQLSelectOne')) {
+            return;
+        }
+        if (!$this->tableExists('drazice_decisions')
+            || !$this->tableExists('drazice_telemetry')
+            || !$this->tableExists('drazice_commands')
+            || !$this->tableExists('drazice_presence')
+            || !$this->tableExists('drazice_people')) {
+            $this->dbInstall();
+        }
     }
 
     function __construct()
@@ -161,8 +191,8 @@ class drazice_smart extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-ESP32-Drazice',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.2.0',
-                    'LATEST_VERSION'  => '1.2.0',
+                    'CURRENT_VERSION' => '1.3.0',
+                    'LATEST_VERSION'  => '1.3.0',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -172,7 +202,7 @@ class drazice_smart extends module
                 $pRec['AUTHOR']          = 'mambursoft';
                 $pRec['DESCRIPTION_RU']  = $descRu;
                 $pRec['DESCRIPTION_EN']  = $descEn;
-                $pRec['CURRENT_VERSION'] = '1.2.0';
+                $pRec['CURRENT_VERSION'] = '1.3.0';
                 $pRec['IS_INSTALLED']    = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -236,15 +266,22 @@ class drazice_smart extends module
             // boost
             'BOOST_TTL_S'          => 1800,
             'BOOST_UNTIL_UTC'      => 0,
+            'BOOST_ALLOW_BATTERY'  => 0,   // this boost may run on battery power
+            // allow heating while the house runs on batteries (user opt-in).
+            // Boiler safety (cooldown / continuous-heat limit) still applies.
+            'ALLOW_BATTERY_HEAT'   => 0,
             // presence (variant a: passive Wi-Fi/BLE by MAC) — OFF by default
             'PRESENCE_ENABLED'     => 0,
             'PRESENCE_ROSTER_JSON' => '{}', // {"aa:bb:..":"Назар"}
             'PRESENCE_ABSENT_AFTER_S' => 120,
-            'PRESENCE_NOTIFY_AFTER_S' => 600,
+            'PRESENCE_NOTIFY_AFTER_S' => 600,    // "long" threshold
+            'PRESENCE_TOO_LONG_AFTER_S' => 1200, // "too_long" threshold
             'PRESENCE_RENOTIFY_EVERY_S' => 0,
             'PRESENCE_HANDLER'     => '',   // MajorDoMo method to call (announce)
             // surplus latch state (planner hysteresis)
             'SURPLUS_LATCHED'      => 0,
+            // Single boiler+ESP object (all properties, presence sessions/events).
+            'BOILER_OBJECT'        => 'EspBoiler',
             // Simple Devices ("Простые устройства") integration — OFF by default.
             // When enabled, the boiler is mirrored into native simple devices
             // (thermostat + sensors) so it is visible/controllable in the
@@ -260,6 +297,12 @@ class drazice_smart extends module
         }
         $this->saveConfig();
         $this->checkInstalled();
+
+        // Create the single boiler+ESP object with all described properties and
+        // linked control methods. Idempotent; safe if objects runtime present.
+        if (BoilerObject::available()) {
+            BoilerObject::ensureObject($this->config['BOILER_OBJECT'], $this->name);
+        }
     }
 
     function dbInstall($data = '')
@@ -303,6 +346,13 @@ drazice_presence: TS_UTC int(11) NOT NULL DEFAULT '0'
 drazice_presence: PERSON varchar(48) NOT NULL DEFAULT ''
 drazice_presence: DURATION_S int(11) NOT NULL DEFAULT '0'
 drazice_presence: EVENT varchar(24) NOT NULL DEFAULT ''
+
+drazice_people: ID int(10) unsigned NOT NULL auto_increment
+drazice_people: PERSON varchar(48) NOT NULL DEFAULT ''
+drazice_people: BLE_MAC varchar(32) NOT NULL DEFAULT ''
+drazice_people: WIFI_MAC varchar(32) NOT NULL DEFAULT ''
+drazice_people: BEACON_UUID varchar(48) NOT NULL DEFAULT ''
+drazice_people: CREATED datetime
 EOD;
         parent::dbInstall($data);
     }
@@ -392,6 +442,7 @@ EOD;
             'tariff_meter_local' => $tariff['meter_local'],
             'is_daytime'     => $isDaytime,
             'boost_active'   => $boostActive,
+            'boost_allow_battery' => !empty($this->config['BOOST_ALLOW_BATTERY']),
             'surplus_latched' => !empty($this->config['SURPLUS_LATCHED']),
             'solar_surplus_enabled' => !empty($this->config['SOLAR_SURPLUS_ENABLED']),
         );
@@ -409,6 +460,7 @@ EOD;
             'solar_surplus_enabled' => !empty($this->config['SOLAR_SURPLUS_ENABLED']),
             'surplus_soc_high' => $this->config['SURPLUS_SOC_HIGH'],
             'surplus_soc_low'  => $this->config['SURPLUS_SOC_LOW'],
+            'allow_battery_heat' => !empty($this->config['ALLOW_BATTERY_HEAT']),
         );
     }
 
@@ -533,52 +585,116 @@ EOD;
         }
     }
 
+    /**
+     * Publish EVERYTHING the ESP exposes into the single boiler+ESP object
+     * (BOILER_OBJECT). Read-only telemetry/diagnostics + planner reflections.
+     * Control properties are NOT written here (they are user-driven inputs).
+     */
     private function publishProperties($s, $d)
     {
-        if (!function_exists('setGlobal')) {
+        if (!BoilerObject::available()) {
             return;
         }
-        // Dirty-check to avoid setGlobal recursion loops: only write on change.
-        $map = array(
-            'EspBoiler.tempUpper'    => $s['temp_upper'],
-            'EspBoiler.tempLower'    => $s['temp_lower'],
-            'EspBoiler.heating'      => ($s['heating'] === null ? '' : ($s['heating'] ? 1 : 0)),
-            'EspBoiler.powerSource'  => $s['power_source'],
-            'EspBoiler.batterySoc'   => ($s['battery_soc'] === null ? '' : $s['battery_soc']),
-            'EspBoiler.tariffActive' => $s['tariff_active'] ? 1 : 0,
-            'EspBoiler.decisionReason' => $d['reason'],
-            'EspBoiler.plannedTarget' => ($d['target_c'] === null ? '' : $d['target_c']),
-            'EspBoiler.controlState' => $d['action'],
-        );
-        foreach ($map as $prop => $val) {
-            if ($val === null) {
-                continue;
-            }
-            $cur = getGlobal($prop);
-            if ((string) $cur !== (string) $val) {
-                setGlobal($prop, $val);
-            }
+        $o = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
+        $b = function ($v) { return $v === null ? null : ($v ? 1 : 0); };
+
+        // telemetry
+        BoilerObject::set($o, 'tempUpper',      $s['temp_upper']);
+        BoilerObject::set($o, 'tempLower',      $s['temp_lower']);
+        BoilerObject::set($o, 'heating',        $b($s['heating']));
+        BoilerObject::set($o, 'hdo',            $b($s['hdo']));
+        BoilerObject::set($o, 'energyTotalKwh', $s['energy_total_kwh']);
+        BoilerObject::set($o, 'bleState',       $s['ble_state']);
+        BoilerObject::set($o, 'powerSource',    $s['power_source']);
+        BoilerObject::set($o, 'batterySoc',     $s['battery_soc']);
+        BoilerObject::set($o, 'tariffActive',   $s['tariff_active'] ? 1 : 0);
+        BoilerObject::set($o, 'connected',      $s['http_available'] ? 1 : 0);
+        BoilerObject::set($o, 'lastSampleUtc',  $s['now_utc']);
+        // planner reflections
+        BoilerObject::set($o, 'plannedTarget',  $d['target_c']);
+        BoilerObject::set($o, 'controlState',   $d['action']);
+        BoilerObject::set($o, 'decisionReason', $d['reason']);
+        BoilerObject::set($o, 'decisionHuman',  $d['reason_human']);
+
+        // ESP diagnostics + guard + reported mode/target (one HTTP batch).
+        $diag = $this->readDiagnostics();
+        BoilerObject::set($o, 'espUptime',      $diag['UPTIME']);
+        BoilerObject::set($o, 'espRssi',        $diag['RSSI']);
+        BoilerObject::set($o, 'espFreeHeap',    $diag['FREE_HEAP']);
+        BoilerObject::set($o, 'espResetReason', $diag['RESET_REASON']);
+        BoilerObject::set($o, 'guardState',     $diag['GUARD_STATE']);
+        BoilerObject::set($o, 'guardReason',    $diag['GUARD_REASON']);
+        BoilerObject::set($o, 'continuousHeatSeconds', $diag['CONT_HEAT_S']);
+        BoilerObject::set($o, 'cooldownRemaining',     $diag['COOLDOWN_S']);
+        BoilerObject::set($o, 'leaseRemaining',        $diag['LEASE_S']);
+        BoilerObject::set($o, 'reportedMode',   $diag['REQ_MODE']);
+        BoilerObject::set($o, 'reportedTarget', $diag['REQ_TARGET']);
+        BoilerObject::set($o, 'boilerVersion',  $diag['BOILER_VER']);
+        BoilerObject::set($o, 'boilerName',     $diag['BOILER_NAME']);
+    }
+
+    /**
+     * Apply a change of a CONTROL property of the boiler object to the boiler.
+     * Called by the property's linked method (change -> guarded REST write).
+     * Public so the auto-generated method code can reach it.
+     */
+    public function applyObjectControl($property, $value)
+    {
+        $this->getConfig();
+        $t = $this->makeTransport();
+        switch ($property) {
+            case 'requestedTarget':
+                $v = (int) round((float) $value);
+                if ($v < 40 || $v > 80) {
+                    return;
+                }
+                $t->postSet('number', 'Boiler Requested Target', $v);
+                break;
+            case 'requestedMode':
+                $m = strtoupper(trim((string) $value));
+                if (in_array($m, array('ANTIFREEZE', 'SMART', 'PROG', 'MANUAL'), true)) {
+                    $t->postSet('select', 'Boiler Requested Mode', $m);
+                }
+                break;
+            case 'boost':
+                if ($value) {
+                    $this->config['BOOST_UNTIL_UTC'] = time() + (int) $this->config['BOOST_TTL_S'];
+                } else {
+                    $this->config['BOOST_UNTIL_UTC'] = 0;
+                }
+                $this->saveConfig();
+                break;
+            case 'automationEnabled':
+                $this->config['AUTOMATION_ENABLED'] = $value ? 1 : 0;
+                $this->saveConfig();
+                break;
+            case 'allowBatteryHeat':
+                $this->config['ALLOW_BATTERY_HEAT'] = $value ? 1 : 0;
+                $this->saveConfig();
+                break;
         }
+        Repository::saveCommand(array(
+            'ts_utc' => time(), 'command_id' => 'objprop', 'kind' => $property,
+            'payload' => (string) $value, 'status' => 'applied',
+            'detail' => 'from boiler object property change',
+        ));
     }
 
     private function evaluatePresence($now)
     {
-        // Observations come from the LAN (router/arp). We read a property that a
-        // user cron/rule can populate: EspBoiler.presenceObservationsJson (list
-        // of {mac,seen_utc}). If absent, nothing to do.
-        $obsRaw = Repository::readProperty('EspBoiler.presenceObservationsJson');
-        $obs = array();
-        if ($obsRaw) {
-            $decoded = json_decode($obsRaw, true);
-            if (is_array($decoded)) {
-                $obs = $decoded;
-            }
-        }
+        $o = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
+
+        // Observations (BLE from the ESP scan + Wi-Fi from router/arp) are
+        // collected into <object>.presenceObservationsJson by the presence
+        // collector (see collectPresenceObservations). Each entry:
+        //   {"mac":"aa:..","seen_utc":..,"source":"ble|wifi"}
+        $obs = $this->collectPresenceObservations($o, $now);
+
         $roster = json_decode($this->config['PRESENCE_ROSTER_JSON'], true);
         if (!is_array($roster)) {
             $roster = array();
         }
-        $stateRaw = Repository::readProperty('EspBoiler.presenceStateJson');
+        $stateRaw = Repository::readProperty($o . '.presenceStateJson');
         $state = $stateRaw ? json_decode($stateRaw, true) : array();
         if (!is_array($state)) {
             $state = array();
@@ -589,32 +705,104 @@ EOD;
             'absent_after_s'    => (int) $this->config['PRESENCE_ABSENT_AFTER_S'],
             'notify_after_s'    => (int) $this->config['PRESENCE_NOTIFY_AFTER_S'],
             'renotify_every_s'  => (int) $this->config['PRESENCE_RENOTIFY_EVERY_S'],
+            'long_after_s'      => (int) $this->config['PRESENCE_NOTIFY_AFTER_S'],
+            'too_long_after_s'  => (int) $this->config['PRESENCE_TOO_LONG_AFTER_S'],
         ), $state);
 
+        // Write presence sessions + events into the single boiler object.
         if (function_exists('setGlobal')) {
-            setGlobal('EspBoiler.presenceStateJson', json_encode($res['state']));
+            setGlobal($o . '.presenceStateJson', json_encode($res['state']));
+            BoilerObject::set($o, 'presenceSessionJson', json_encode($res['present']));
             $labels = array();
             foreach ($res['present'] as $pp) {
-                $labels[] = $pp['person'] . ' (' . intval($pp['duration_s'] / 60) . ' хв)';
+                $labels[] = $pp['person'] . ' (' . intval($pp['duration_s'] / 60) . ' хв'
+                    . (isset($pp['source']) ? ', ' . $pp['source'] : '') . ')';
             }
-            setGlobal('EspBoiler.presentPeople', implode(', ', $labels));
+            BoilerObject::set($o, 'presentPeople', ($labels ? implode(', ', $labels) : '—'));
         }
 
         foreach ($res['events'] as $ev) {
-            Repository::saveCommand(array(
-                'ts_utc' => $now, 'command_id' => 'presence', 'kind' => 'presence',
-                'payload' => $ev['person'] . ':' . $ev['duration_s'], 'status' => 'notify',
-                'detail' => $ev['action'],
-            ));
+            // Persist the session event (history) + surface as object property.
+            if (function_exists('SQLInsert') && $this->tableExists('drazice_presence')) {
+                $prRec = array(
+                    'TS_UTC'     => $now,
+                    'PERSON'     => isset($ev['person']) ? (string) $ev['person'] : '',
+                    'DURATION_S' => isset($ev['duration_s']) ? (int) $ev['duration_s'] : 0,
+                    'EVENT'      => isset($ev['event']) ? (string) $ev['event'] : 'long',
+                );
+                SQLInsert('drazice_presence', $prRec);
+            }
+            if (function_exists('setGlobal')) {
+                BoilerObject::set($o, 'presenceEvent',
+                    (isset($ev['event']) ? $ev['event'] : 'long') . ':' . (isset($ev['person']) ? $ev['person'] : ''));
+                BoilerObject::set($o, 'presenceEventJson', json_encode($ev));
+            }
             // Call the configured MajorDoMo handler (e.g. announce on speaker).
             $handler = isset($this->config['PRESENCE_HANDLER']) ? $this->config['PRESENCE_HANDLER'] : '';
             if ($handler && function_exists('callMethod')) {
                 callMethod($handler, array(
-                    'person' => $ev['person'],
-                    'duration_s' => $ev['duration_s'],
+                    'person'     => isset($ev['person']) ? $ev['person'] : '',
+                    'duration_s' => isset($ev['duration_s']) ? $ev['duration_s'] : 0,
+                    'event'      => isset($ev['event']) ? $ev['event'] : 'long',
                 ));
             }
         }
+    }
+
+    /**
+     * Collect presence observations from BLE (ESP scan results) and Wi-Fi.
+     * BLE: reads "BLE Scan Results" from the ESP. Wi-Fi: reads a property that a
+     * user cron/rule fills (router/arp table) at <object>.wifiObservationsJson.
+     * Returns a list of array(mac, seen_utc, source).
+     */
+    private function collectPresenceObservations($o, $now)
+    {
+        $obs = array();
+
+        // BLE from the ESP scanner (if enabled/flashed).
+        $ble = $this->bleScanDevices();
+        if (!empty($ble['available']) && !empty($ble['list'])) {
+            foreach ($ble['list'] as $d) {
+                if (!empty($d['MAC'])) {
+                    $obs[] = array('mac' => strtolower($d['MAC']), 'seen_utc' => $now, 'source' => 'ble');
+                }
+            }
+        }
+
+        // Wi-Fi observations from the LAN (router/arp), filled externally.
+        $wifiRaw = Repository::readProperty($o . '.wifiObservationsJson');
+        if ($wifiRaw) {
+            $decoded = json_decode($wifiRaw, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $d) {
+                    if (!empty($d['mac'])) {
+                        $obs[] = array(
+                            'mac' => strtolower($d['mac']),
+                            'seen_utc' => isset($d['seen_utc']) ? (int) $d['seen_utc'] : $now,
+                            'source' => 'wifi',
+                        );
+                    }
+                }
+            }
+        }
+
+        // Legacy/combined feed, if the user fills it directly.
+        $legacy = Repository::readProperty($o . '.presenceObservationsJson');
+        if ($legacy) {
+            $decoded = json_decode($legacy, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $d) {
+                    if (!empty($d['mac'])) {
+                        $obs[] = array(
+                            'mac' => strtolower($d['mac']),
+                            'seen_utc' => isset($d['seen_utc']) ? (int) $d['seen_utc'] : $now,
+                            'source' => isset($d['source']) ? $d['source'] : 'lan',
+                        );
+                    }
+                }
+            }
+        }
+        return $obs;
     }
 
     // ---- UI -----------------------------------------------------------------
@@ -887,7 +1075,7 @@ EOD;
 
     private function recentDecisions()
     {
-        if (!function_exists('SQLSelect')) {
+        if (!function_exists('SQLSelect') || !$this->tableExists('drazice_decisions')) {
             return array();
         }
         $rows = SQLSelect("SELECT DECISION_UTC, ACTION, REASON, REASON_HUMAN, ALLOWED, DRY_RUN
@@ -908,7 +1096,7 @@ EOD;
 
     private function recentCommands()
     {
-        if (!function_exists('SQLSelect')) {
+        if (!function_exists('SQLSelect') || !$this->tableExists('drazice_commands')) {
             return array();
         }
         $rows = SQLSelect("SELECT TS_UTC, KIND, PAYLOAD, STATUS, DETAIL
@@ -947,13 +1135,13 @@ EOD;
             'ESP_HOST','ESP_PORT','ESP_USER','ESP_PASS','ESP_DIGEST','POLL_INTERVAL_S',
             'COMFORT_MIN_C','NIGHT_TARGET_C','SOLAR_TARGET_C','BOOST_TARGET_C','ABSOLUTE_MAX_C',
             'TIMEZONE','CHEAP_START_HOUR','CHEAP_END_HOUR','METER_OFFSET_SECONDS',
-            'START_GUARD_SECONDS','END_GUARD_SECONDS','MAX_CONTINUOUS_HEAT_S','MIN_PAUSE_S',
+            'START_GUARD_SECONDS','END_GUARD_SECONDS','MAX_CONTINUOUS_HEAT_S','MIN_PAUSE_S','ALLOW_BATTERY_HEAT',
             'LEASE_TTL_S','COMMAND_TIMEOUT_S','POWER_PROPERTY','BATTERY_ACTIVE_VALUE',
             'POWER_FRESHNESS_TTL_S','SOLAR_SURPLUS_ENABLED','SOC_PROPERTY','SURPLUS_SOC_HIGH',
             'SURPLUS_SOC_LOW','FORECAST_TODAY_PROP','FORECAST_TOMORROW_PROP','FORECAST_UPDATED_PROP',
             'FORECAST_PROVIDER_PROP','FORECAST_FRESHNESS_TTL_S','BOOST_TTL_S','PRESENCE_ENABLED',
             'PRESENCE_ROSTER_JSON','PRESENCE_ABSENT_AFTER_S','PRESENCE_NOTIFY_AFTER_S',
-            'PRESENCE_RENOTIFY_EVERY_S','PRESENCE_HANDLER',
+            'PRESENCE_TOO_LONG_AFTER_S','PRESENCE_RENOTIFY_EVERY_S','PRESENCE_HANDLER','BOILER_OBJECT',
             'SIMPLE_DEVICES_ENABLED','SIMPLE_DEVICES_MAP_JSON',
         );
         foreach ($fields as $f) {
@@ -979,6 +1167,8 @@ EOD;
             $ttl = 7200;
         }
         $this->config['BOOST_UNTIL_UTC'] = time() + $ttl;
+        // This boost may run on battery power if the user ticked the box.
+        $this->config['BOOST_ALLOW_BATTERY'] = (isset($_REQUEST['allow_battery']) && $_REQUEST['allow_battery']) ? 1 : 0;
         $this->saveConfig();
     }
 

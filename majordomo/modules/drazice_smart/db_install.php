@@ -47,4 +47,11 @@ drazice_presence: TS_UTC int(11) NOT NULL DEFAULT '0'
 drazice_presence: PERSON varchar(48) NOT NULL DEFAULT ''
 drazice_presence: DURATION_S int(11) NOT NULL DEFAULT '0'
 drazice_presence: EVENT varchar(24) NOT NULL DEFAULT ''
+
+drazice_people: ID int(10) unsigned NOT NULL auto_increment
+drazice_people: PERSON varchar(48) NOT NULL DEFAULT ''
+drazice_people: BLE_MAC varchar(32) NOT NULL DEFAULT ''
+drazice_people: WIFI_MAC varchar(32) NOT NULL DEFAULT ''
+drazice_people: BEACON_UUID varchar(48) NOT NULL DEFAULT ''
+drazice_people: CREATED datetime
 EOD;
