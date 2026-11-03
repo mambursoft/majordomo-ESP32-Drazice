@@ -191,8 +191,8 @@ class drazice_smart extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-ESP32-Drazice',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.3.0',
-                    'LATEST_VERSION'  => '1.3.0',
+                    'CURRENT_VERSION' => '1.3.1',
+                    'LATEST_VERSION'  => '1.3.1',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -202,7 +202,7 @@ class drazice_smart extends module
                 $pRec['AUTHOR']          = 'mambursoft';
                 $pRec['DESCRIPTION_RU']  = $descRu;
                 $pRec['DESCRIPTION_EN']  = $descEn;
-                $pRec['CURRENT_VERSION'] = '1.3.0';
+                $pRec['CURRENT_VERSION'] = '1.3.1';
                 $pRec['IS_INSTALLED']    = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -1290,15 +1290,25 @@ EOD;
     private function csrfToken()
     {
         global $session;
-        if (is_object($session) && method_exists($session, 'get')) {
-            $tok = $session->get('drazice_csrf');
-            if (!$tok) {
-                $tok = md5(uniqid((string) mt_rand(), true));
-                $session->set('drazice_csrf', $tok);
+        // MajorDoMo session stores data in $session->data[...] and persists it
+        // to $_SESSION via $session->save(). Use that so the token is stable
+        // between rendering the form and submitting it.
+        if (is_object($session) && isset($session->data) && is_array($session->data)) {
+            if (empty($session->data['drazice_csrf'])) {
+                $session->data['drazice_csrf'] = md5(uniqid((string) mt_rand(), true));
+                if (method_exists($session, 'save')) {
+                    $session->save();
+                }
             }
-            return $tok;
+            return $session->data['drazice_csrf'];
         }
-        // Fallback: per-process token (still better than nothing).
+        // Fallback: native PHP session, then a per-process token.
+        if (function_exists('session_id') && session_id() !== '') {
+            if (empty($_SESSION['drazice_csrf'])) {
+                $_SESSION['drazice_csrf'] = md5(uniqid((string) mt_rand(), true));
+            }
+            return $_SESSION['drazice_csrf'];
+        }
         if (!isset($GLOBALS['drazice_csrf_fallback'])) {
             $GLOBALS['drazice_csrf_fallback'] = md5(uniqid((string) mt_rand(), true));
         }
@@ -1307,7 +1317,11 @@ EOD;
 
     private function checkCsrf()
     {
-        $sent = isset($_REQUEST['csrf']) ? $_REQUEST['csrf'] : '';
-        return ($sent !== '' && hash_equals($this->csrfToken(), $sent));
+        $sent = isset($_REQUEST['csrf']) ? (string) $_REQUEST['csrf'] : '';
+        $token = $this->csrfToken();
+        if ($sent === '' || $token === '') {
+            return false;
+        }
+        return hash_equals($token, $sent);
     }
 }
