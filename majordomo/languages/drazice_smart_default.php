@@ -145,8 +145,10 @@ $dictionary = array(
 
     'DS_TAR_INTRO'       => 'The cheap (night) tariff is computed from the meter clock.',
     'DS_TIMEZONE'        => 'Timezone',
-    'DS_CHEAP_START'     => 'Cheap start (hour)',
-    'DS_CHEAP_END'       => 'Cheap end (hour)',
+    'DS_CHEAP_START'     => 'Cheap start',
+    'DS_CHEAP_END'       => 'Cheap end',
+    'DS_HOUR_SHORT'      => 'h',
+    'DS_MIN_SHORT'       => 'min',
     'DS_METER_OFFSET'    => 'Meter clock offset (s)',
     'DS_START_GUARD'     => 'Start guard (s)',
     'DS_END_GUARD'       => 'End guard (s)',
@@ -216,14 +218,16 @@ $dictionary = array(
     'DS_ERROR_CSRF'      => 'Form security error (CSRF). Refresh the page and try again.',
     'DS_RELATED_OBJECTS' => 'Related objects',
 
+    // Save-settings result banner
+    'DS_SAVE_OK'         => 'Saved.',
+    'DS_SAVE_FAIL'       => 'Not saved (the previous value was kept), please fix these fields:',
+    'DS_SAVE_ERR_JSON'   => 'must be a valid JSON object, e.g. {"key":"value"}',
+    'DS_SAVE_ERR_NUM'    => 'must be a number',
+
     // --- UX rebuild (FEAT-002): new tabs ---
     'DS_TAB_SETUP'       => 'Setup',
     'DS_TAB_POLICY'      => 'Policy',
     'DS_TAB_ADVANCED'    => 'Advanced',
-
-    // Tariff minute/hour short labels (were missing from the deployed set)
-    'DS_HOUR_SHORT'      => 'h',
-    'DS_MIN_SHORT'       => 'min',
 
     // Status: connection-health badge
     'DS_ST_CONN_OK'      => 'ESP32 connected',

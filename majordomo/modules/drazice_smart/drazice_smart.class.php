@@ -25,6 +25,7 @@ use DraziceSmart\NetworkScanner;
 use DraziceSmart\Presence;
 use DraziceSmart\SimpleDevices;
 use DraziceSmart\BoilerObject;
+use DraziceSmart\SettingsSaver;
 
 class drazice_smart extends module
 {
@@ -876,7 +877,9 @@ EOD;
                 $out['CFG_' . $k] = ($v === '' ? '' : '********');
                 continue;
             }
-            $out['CFG_' . $k] = is_scalar($v) ? $v : json_encode($v);
+            // HTML-escaped: these go into value="..." attributes and <textarea>
+            // bodies; raw quotes (e.g. a JSON roster) would truncate the field.
+            $out['CFG_' . $k] = SettingsSaver::esc($v);
         }
     }
 
@@ -886,6 +889,7 @@ EOD;
         $this->getConfig();
 
         $op = isset($_REQUEST['op']) ? $_REQUEST['op'] : '';
+        $rejectedInput = array();
 
         // CSRF: all mutating ops require a valid session token.
         if ($op !== '' && $op !== 'tab') {
@@ -897,7 +901,20 @@ EOD;
 
         switch ($op) {
             case 'save_settings':
-                $this->opSaveSettings();
+                $saved = $this->opSaveSettings();
+                // Visible result for the user (flat keys for the parser).
+                $out['SAVE_RESULT'] = empty($saved['errors']) ? 'ok' : 'error';
+                $rows = array();
+                foreach ($saved['errors'] as $field => $code) {
+                    $rows[] = array(
+                        'FIELD'  => SettingsSaver::esc($field),
+                        'REASON' => SettingsSaver::esc($code === 'json'
+                            ? (defined('LANG_DS_SAVE_ERR_JSON') ? LANG_DS_SAVE_ERR_JSON : 'must be a valid JSON object')
+                            : (defined('LANG_DS_SAVE_ERR_NUM') ? LANG_DS_SAVE_ERR_NUM : 'must be a number')),
+                    );
+                }
+                $out['SAVE_ERRORS'] = $rows;
+                $rejectedInput = $saved['rejected'];
                 break;
             case 'boost':
                 $this->opBoost();
@@ -933,7 +950,7 @@ EOD;
                 $out['PROBE_CMD'] = 1;
                 $out['PROBE_REACHABLE'] = !empty($probe['ok']) ? 1 : 0;
                 $out['PROBE_IS_BOILER'] = !empty($probe['is_boiler']) ? 1 : 0;
-                $out['PROBE_HOST'] = isset($probe['host']) ? $probe['host'] : '';
+                $out['PROBE_HOST'] = SettingsSaver::esc(isset($probe['host']) ? $probe['host'] : '');
                 break;
             case 'discover_properties':
                 $out['PROPERTY_CANDIDATES'] = $this->discoverProperties();
@@ -983,6 +1000,10 @@ EOD;
         $forecast = $this->forecastSnapshot($snapshot['now_utc']);
 
         $this->flattenForTemplate($out, $snapshot, $decision, $forecast);
+        // Show rejected input back to the user instead of discarding it.
+        foreach ($rejectedInput as $f => $raw) {
+            $out['CFG_' . $f] = SettingsSaver::esc($raw);
+        }
         $out['IS_ADMIN'] = 1;
         $out['CSRF']     = $this->csrfToken();
         $out['AUTOMATION_ENABLED'] = !empty($this->config['AUTOMATION_ENABLED']) ? 1 : 0;
@@ -1005,13 +1026,20 @@ EOD;
         $ble = $this->bleScanDevices();
         $out['BLE_AVAILABLE']    = !empty($ble['available']) ? 1 : 0;
         $out['BLE_HAS_DEVICES']  = (!empty($ble['list'])) ? 1 : 0;
-        $out['BLE_DEVICES']      = $ble['list'];
-        $out['SELECTED_BLE_MAC'] = isset($this->config['BOILER_BLE_MAC']) ? $this->config['BOILER_BLE_MAC'] : '';
+        // MAC/NAME come over the air: escape (MAC lands in a hidden value="...").
+        $bleRows = array();
+        foreach ($ble['list'] as $row) {
+            $row['MAC']  = SettingsSaver::esc($row['MAC']);
+            $row['NAME'] = SettingsSaver::esc($row['NAME']);
+            $bleRows[] = $row;
+        }
+        $out['BLE_DEVICES']      = $bleRows;
+        $out['SELECTED_BLE_MAC'] = SettingsSaver::esc(isset($this->config['BOILER_BLE_MAC']) ? $this->config['BOILER_BLE_MAC'] : '');
 
         // Full diagnostics: flatten every firmware entity into DG_<KEY> keys.
         $diag = $this->readDiagnostics();
         foreach ($diag as $k => $v) {
-            $out['DG_' . $k] = ($v === null || $v === '') ? '—' : $v;
+            $out['DG_' . $k] = ($v === null || $v === '') ? '—' : SettingsSaver::esc($v);
         }
 
         // Property-binding dropdowns: build <select> option lists in PHP (the
@@ -1178,32 +1206,17 @@ EOD;
 
     // ---- admin operations ---------------------------------------------------
 
+    /**
+     * Save a settings form. The logic lives in SettingsSaver (pure, unit-tested).
+     * Returns array(errors => field=>code, rejected => field=>raw input) so the
+     * page can show a visible result and keep the user's rejected input.
+     */
     private function opSaveSettings()
     {
-        $fields = array(
-            'ESP_HOST','ESP_PORT','ESP_USER','ESP_PASS','ESP_DIGEST','POLL_INTERVAL_S',
-            'COMFORT_MIN_C','NIGHT_TARGET_C','SOLAR_TARGET_C','BOOST_TARGET_C','ABSOLUTE_MAX_C',
-            'TIMEZONE','CHEAP_START_HOUR','CHEAP_START_MIN','CHEAP_END_HOUR','CHEAP_END_MIN','METER_OFFSET_SECONDS',
-            'START_GUARD_SECONDS','END_GUARD_SECONDS','MAX_CONTINUOUS_HEAT_S','MIN_PAUSE_S','ALLOW_BATTERY_HEAT',
-            'LEASE_TTL_S','COMMAND_TIMEOUT_S','POWER_PROPERTY','BATTERY_ACTIVE_VALUE',
-            'POWER_FRESHNESS_TTL_S','SOLAR_SURPLUS_ENABLED','SOC_PROPERTY','SURPLUS_SOC_HIGH',
-            'SURPLUS_SOC_LOW','FORECAST_TODAY_PROP','FORECAST_TOMORROW_PROP','FORECAST_UPDATED_PROP',
-            'FORECAST_PROVIDER_PROP','FORECAST_FRESHNESS_TTL_S','BOOST_TTL_S','PRESENCE_ENABLED',
-            'PRESENCE_ROSTER_JSON','PRESENCE_ABSENT_AFTER_S','PRESENCE_NOTIFY_AFTER_S',
-            'PRESENCE_TOO_LONG_AFTER_S','PRESENCE_RENOTIFY_EVERY_S','PRESENCE_HANDLER','BOILER_OBJECT',
-            'SIMPLE_DEVICES_ENABLED','SIMPLE_DEVICES_MAP_JSON',
-        );
-        foreach ($fields as $f) {
-            if (isset($_REQUEST[$f])) {
-                // Keep masked password unchanged if left as asterisks.
-                if ($f === 'ESP_PASS' && $_REQUEST[$f] === '********') {
-                    continue;
-                }
-                $this->config[$f] = $_REQUEST[$f];
-            }
-        }
-        // Validate host before saving if provided.
+        $res = SettingsSaver::apply($this->config, $_REQUEST);
+        $this->config = $res['config'];
         $this->saveConfig();
+        return array('errors' => $res['errors'], 'rejected' => $res['rejected']);
     }
 
     private function opBoost()

@@ -155,8 +155,10 @@ $dictionary = array(
     // Tariff tab
     'DS_TAR_INTRO'       => 'Пільговий (нічний) тариф рахується за годинником лічильника.',
     'DS_TIMEZONE'        => 'Часовий пояс',
-    'DS_CHEAP_START'     => 'Початок пільги (год)',
-    'DS_CHEAP_END'       => 'Кінець пільги (год)',
+    'DS_CHEAP_START'     => 'Початок пільги',
+    'DS_CHEAP_END'       => 'Кінець пільги',
+    'DS_HOUR_SHORT'      => 'год',
+    'DS_MIN_SHORT'       => 'хв',
     'DS_METER_OFFSET'    => 'Похибка годинника лічильника (с)',
     'DS_START_GUARD'     => 'Відступ на початку (с)',
     'DS_END_GUARD'       => 'Відступ у кінці (с)',
@@ -232,14 +234,16 @@ $dictionary = array(
     'DS_ERROR_CSRF'      => 'Помилка безпеки форми (CSRF). Оновіть сторінку і спробуйте ще раз.',
     'DS_RELATED_OBJECTS' => 'Пов\'язані об\'єкти',
 
+    // Save-settings result banner
+    'DS_SAVE_OK'         => 'Збережено.',
+    'DS_SAVE_FAIL'       => 'Не збережено (попереднє значення залишилось), виправте поля:',
+    'DS_SAVE_ERR_JSON'   => 'має бути коректним JSON-об\'єктом, напр. {"ключ":"значення"}',
+    'DS_SAVE_ERR_NUM'    => 'має бути числом',
+
     // --- UX rebuild (FEAT-002): new tabs ---
     'DS_TAB_SETUP'       => 'Підключення',
     'DS_TAB_POLICY'      => 'Політика',
     'DS_TAB_ADVANCED'    => 'Додатково',
-
-    // Tariff minute/hour short labels (were missing from the deployed set)
-    'DS_HOUR_SHORT'      => 'год',
-    'DS_MIN_SHORT'       => 'хв',
 
     // Status: connection-health badge
     'DS_ST_CONN_OK'      => 'ESP32 на зв\'язку',

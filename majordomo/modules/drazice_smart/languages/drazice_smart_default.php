@@ -218,6 +218,12 @@ $dictionary = array(
     'DS_ERROR_CSRF'      => 'Form security error (CSRF). Refresh the page and try again.',
     'DS_RELATED_OBJECTS' => 'Related objects',
 
+    // Save-settings result banner
+    'DS_SAVE_OK'         => 'Saved.',
+    'DS_SAVE_FAIL'       => 'Not saved (the previous value was kept), please fix these fields:',
+    'DS_SAVE_ERR_JSON'   => 'must be a valid JSON object, e.g. {"key":"value"}',
+    'DS_SAVE_ERR_NUM'    => 'must be a number',
+
     // --- UX rebuild (FEAT-002): new tabs ---
     'DS_TAB_SETUP'       => 'Setup',
     'DS_TAB_POLICY'      => 'Policy',

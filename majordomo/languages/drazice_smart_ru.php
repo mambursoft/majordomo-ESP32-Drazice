@@ -145,8 +145,10 @@ $dictionary = array(
 
     'DS_TAR_INTRO'       => 'Льготный (ночной) тариф считается по часам счётчика.',
     'DS_TIMEZONE'        => 'Часовой пояс',
-    'DS_CHEAP_START'     => 'Начало льготы (час)',
-    'DS_CHEAP_END'       => 'Конец льготы (час)',
+    'DS_CHEAP_START'     => 'Начало льготы',
+    'DS_CHEAP_END'       => 'Конец льготы',
+    'DS_HOUR_SHORT'      => 'час',
+    'DS_MIN_SHORT'       => 'мин',
     'DS_METER_OFFSET'    => 'Погрешность часов счётчика (с)',
     'DS_START_GUARD'     => 'Отступ в начале (с)',
     'DS_END_GUARD'       => 'Отступ в конце (с)',
@@ -216,14 +218,16 @@ $dictionary = array(
     'DS_ERROR_CSRF'      => 'Ошибка безопасности формы (CSRF). Обновите страницу и попробуйте снова.',
     'DS_RELATED_OBJECTS' => 'Связанные объекты',
 
+    // Save-settings result banner
+    'DS_SAVE_OK'         => 'Сохранено.',
+    'DS_SAVE_FAIL'       => 'Не сохранено (прежнее значение осталось), исправьте поля:',
+    'DS_SAVE_ERR_JSON'   => 'должно быть корректным JSON-объектом, напр. {"ключ":"значение"}',
+    'DS_SAVE_ERR_NUM'    => 'должно быть числом',
+
     // --- UX rebuild (FEAT-002): new tabs ---
     'DS_TAB_SETUP'       => 'Подключение',
     'DS_TAB_POLICY'      => 'Политика',
     'DS_TAB_ADVANCED'    => 'Дополнительно',
-
-    // Tariff minute/hour short labels (were missing from the deployed set)
-    'DS_HOUR_SHORT'      => 'ч',
-    'DS_MIN_SHORT'       => 'мин',
 
     // Status: connection-health badge
     'DS_ST_CONN_OK'      => 'ESP32 на связи',

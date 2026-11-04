@@ -48,6 +48,7 @@ class module
     public $result;
     public $action = '';
     public $owner;
+    public $tab;
 
     public function saveParams($data = 1) { return true; }
     public function getParams() {}
@@ -81,3 +82,65 @@ echo "buildSnapshot() (no ESP; should degrade gracefully)...\n";
 $snap = $m->buildSnapshot();
 
 echo "OK: no fatal. snapshot http_available=" . var_export($snap['http_available'], true) . "\n";
+
+// ---- Headless admin-tab render check ---------------------------------------
+// The real MajorDoMo jTemplate engine is not vendored in this repo, so this is
+// an approximation: it loads the LANG_DS_* constants (every language file of
+// both language sets) and checks that admin() produces output for all 7 tabs
+// without a fatal, then scans the raw template source for <#LANG_DS_...#>
+// tokens that have no matching defined constant in ANY language file. It does
+// NOT execute the [#if#]/[#begin#] control flow, so it cannot prove there are
+// no leaked [#...#] tags at runtime; that still needs a real MajorDoMo page
+// load. Labelled honestly as "approximate" in the output.
+echo "\n-- headless admin-tab checks (approximate; real jTemplate not available offline) --\n";
+
+$langSets = array(
+    'modules/drazice_smart/languages' => dirname(__DIR__) . '/majordomo/modules/drazice_smart/languages',
+    'languages'                       => dirname(__DIR__) . '/majordomo/languages',
+);
+$definedByFile = array();
+foreach ($langSets as $label => $dir) {
+    foreach (glob($dir . '/drazice_smart_*.php') as $f) {
+        $before = get_defined_constants();
+        require $f;
+        $after = get_defined_constants();
+        $new = array_diff_key($after, $before);
+        $definedByFile[$label . '/' . basename($f)] = array_keys($new);
+    }
+}
+$anyDefined = array();
+foreach ($definedByFile as $file => $consts) {
+    foreach ($consts as $c) {
+        $anyDefined[$c] = true;
+    }
+}
+
+$tplPath = dirname(__DIR__) . '/majordomo/modules/drazice_smart/templates/action_admin.html';
+$tpl = file_get_contents($tplPath);
+preg_match_all('/<#(LANG_DS_[A-Z0-9_]+)#>/', $tpl, $langMatches);
+$usedLangKeys = array_unique($langMatches[1]);
+$missing = array();
+foreach ($usedLangKeys as $k) {
+    if (!isset($anyDefined[$k])) {
+        $missing[] = $k;
+    }
+}
+echo "Template LANG_DS_* tokens used: " . count($usedLangKeys) . "\n";
+if (empty($missing)) {
+    echo "OK: every <#LANG_DS_...#> token used by action_admin.html is defined in at least one language file.\n";
+} else {
+    echo "MISSING LANG_DS_* constants (used in template, not defined anywhere):\n";
+    foreach ($missing as $k) {
+        echo "  - $k\n";
+    }
+}
+
+// Render admin() for every tab to confirm no PHP fatal while building $out.
+foreach (array('status', 'setup', 'control', 'policy', 'log', 'diag', 'advanced') as $tab) {
+    $_REQUEST = array('tab' => $tab);
+    $out = array();
+    $m->tab = $tab;
+    $m->admin($out);
+    echo "admin() tab=$tab: OK (" . count($out) . " template vars)\n";
+}
+echo "OK: no fatal (admin tabs)\n";

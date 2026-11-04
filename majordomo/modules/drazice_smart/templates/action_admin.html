@@ -1,4 +1,4 @@
-<!-- Drazice SMART Admin (MajorDoMo parser: [#VAR#], [#if X="y"#], [#begin ARR#]...[#end ARR#]) -->
+<!-- Drazice SMART Admin. Uses the MajorDoMo template parser tags (variable, if/else/endif, begin/end loops). Do not write literal tag syntax in comments: the parser would execute it. -->
 <div class="container-fluid" style="padding-top:15px;">
 
   <div class="row" style="margin-bottom:12px;">
@@ -20,6 +20,20 @@
 
   [#if ERROR="csrf"#]
   <div class="alert alert-danger"><#LANG_DS_ERROR_CSRF#></div>
+  [#endif#]
+
+  [#if SAVE_RESULT="ok"#]
+  <div class="alert alert-success" role="status"><span class="glyphicon glyphicon-ok-sign"></span> <strong><#LANG_DS_SAVE_OK#></strong></div>
+  [#endif#]
+  [#if SAVE_RESULT="error"#]
+  <div class="alert alert-danger" role="alert">
+    <span class="glyphicon glyphicon-remove-sign"></span> <strong><#LANG_DS_SAVE_FAIL#></strong>
+    <ul style="margin:6px 0 0 0;">
+    [#begin SAVE_ERRORS#]
+      <li><code>[#FIELD#]</code> — [#REASON#]</li>
+    [#end SAVE_ERRORS#]
+    </ul>
+  </div>
   [#endif#]
 
   <div class="alert alert-info" style="margin-bottom:15px;">
@@ -97,6 +111,7 @@
   <form method="post" action="?tab=setup">
     <input type="hidden" name="op" value="save_settings">
     <input type="hidden" name="csrf" value="[#CSRF#]">
+    <input type="hidden" name="_cb" value="ESP_DIGEST">
     <div class="row">
       <div class="col-md-4 form-group">
         <label><#LANG_DS_ESP_HOST#></label>
@@ -263,7 +278,7 @@
   [#if TAB="policy"#]
   <h4><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_POLICY_ENERGY#></h4>
   <form method="post" action="?tab=policy">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED">
     <p class="text-muted"><#LANG_DS_EN_INTRO#></p>
     <div class="row">
       <div class="col-md-2 form-group"><label><#LANG_DS_COMFORT_MIN#></label><input class="form-control" name="COMFORT_MIN_C" value="[#CFG_COMFORT_MIN_C#]"><small class="text-muted"><#LANG_DS_H_COMFORT_MIN#></small></div>
@@ -447,7 +462,7 @@
     <div class="alert alert-warning"><#LANG_DS_SD_UNAVAILABLE#></div>
   [#endif#]
   <form method="post" action="?tab=advanced">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SIMPLE_DEVICES_ENABLED">
     <div class="checkbox"><label><input type="checkbox" name="SIMPLE_DEVICES_ENABLED" value="1" [#if SIMPLE_DEVICES_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SD_ENABLE#></label></div>
     <div class="alert alert-info" style="font-size:12px;"><strong><#LANG_DS_SD_USUALLY_EMPTY#></strong></div>
     <div class="form-group">
@@ -473,7 +488,7 @@
   <p class="text-muted"><#LANG_DS_PR_INTRO#></p>
   [#if PRESENT_PEOPLE#]<p><#LANG_DS_PR_PRESENT#>: <strong>[#PRESENT_PEOPLE#]</strong></p>[#endif#]
   <form method="post" action="?tab=advanced">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="PRESENCE_ENABLED">
     <div class="checkbox"><label><input type="checkbox" name="PRESENCE_ENABLED" value="1" [#if PRESENCE_ENABLED="1"#]checked[#endif#]> <#LANG_DS_PR_ENABLE#></label></div>
     <div class="form-group"><label><#LANG_DS_PR_ROSTER#></label><input class="form-control" name="PRESENCE_ROSTER_JSON" value="[#CFG_PRESENCE_ROSTER_JSON#]"><small class="text-muted"><#LANG_DS_H_PR_ROSTER#></small></div>
     <div class="row">

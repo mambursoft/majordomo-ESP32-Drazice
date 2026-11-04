@@ -218,6 +218,12 @@ $dictionary = array(
     'DS_ERROR_CSRF'      => 'Ошибка безопасности формы (CSRF). Обновите страницу и попробуйте снова.',
     'DS_RELATED_OBJECTS' => 'Связанные объекты',
 
+    // Save-settings result banner
+    'DS_SAVE_OK'         => 'Сохранено.',
+    'DS_SAVE_FAIL'       => 'Не сохранено (прежнее значение осталось), исправьте поля:',
+    'DS_SAVE_ERR_JSON'   => 'должно быть корректным JSON-объектом, напр. {"ключ":"значение"}',
+    'DS_SAVE_ERR_NUM'    => 'должно быть числом',
+
     // --- UX rebuild (FEAT-002): new tabs ---
     'DS_TAB_SETUP'       => 'Подключение',
     'DS_TAB_POLICY'      => 'Политика',
