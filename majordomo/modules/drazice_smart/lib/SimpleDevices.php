@@ -11,8 +11,10 @@
  *     core thermostat logic only DISPLAYS; it never drives the element itself.
  *     Target changes made in the Devices UI are picked up here and sent through
  *     the guarded REST path (cooldown / lease preserved).
- *   - sensor devices (temperature lower, energy, battery SOC, HDO) so every
- *     telemetry value is visible as a normal object/property.
+ *   - sensor devices (temperature lower, energy) so each telemetry value is
+ *     visible as a normal object/property. Battery SOC is intentionally NOT
+ *     created: it mirrors the Deye object (deye_battery.soc) the module already
+ *     reads, so a dedicated card would only duplicate that object.
  *
  * This adapter is intentionally defensive: it only acts when the MajorDoMo
  * `devices` runtime (addDevice / getObject / setGlobal / getGlobal) is present,
@@ -55,11 +57,11 @@ class SimpleDevices
                 'object' => 'DraziceBoilerEnergy',
                 'title'  => 'Drazice Boiler Energy, kWh',
             ),
-            'battery_soc' => array(
-                'type'   => 'sensor_percentage',
-                'object' => 'DraziceBoilerSoc',
-                'title'  => 'Drazice Boiler Battery SOC',
-            ),
+            // NOTE: no battery_soc device by default. SOC is a MIRROR of your
+            // own SOC property (deye_battery.soc) that the module already reads
+            // from the Deye inverter; a separate card would just duplicate that
+            // object. publish() still tolerates a battery_soc entry if an older
+            // saved map carries one, but we do not create it on a fresh install.
         );
     }
 

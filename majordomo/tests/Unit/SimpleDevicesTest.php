@@ -13,6 +13,10 @@ foreach (SimpleDevices::defaultMap() as $key => $d) {
     T::ok(isset($d['object']) && $d['object'] !== '', "default map '$key' has an object");
 }
 T::eq(isset(SimpleDevices::defaultMap()['hdo']), false, 'HDO (a boiler config flag) is not a default device');
+// Battery SOC mirrors the Deye object (deye_battery.soc); a dedicated card
+// would only duplicate it, so it is not provisioned by default (1.13.1).
+T::eq(isset(SimpleDevices::defaultMap()['battery_soc']), false, 'battery_soc (Deye mirror) is not a default device');
+T::eq(count(SimpleDevices::defaultMap()), 3, 'default map has 3 devices (thermostat + 2 sensors)');
 
 // Legacy maps saved by older builds (class names) are converted.
 T::eq(SimpleDevices::normalizeType('SThermostats'), 'thermostat', 'legacy SThermostats -> thermostat');

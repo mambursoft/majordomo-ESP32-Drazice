@@ -508,6 +508,13 @@ $dictionary = array(
     'DS_EVT_POWER'        => 'On power source change',
     'DS_EVT_TEMP'         => 'On temperature step',
     'DS_EVT_TEMP_STEP'    => 'Temperature step for an event, °C',
+
+    // 1.13.1: why three simple devices (SOC intentionally not created)
+    'DS_SD_WHY4_TITLE'       => 'Why three devices: one thermostat (control) + two sensors (monitoring as separate cards).',
+    'DS_SD_WHY4_THERMOSTAT'  => 'Drazice Boiler (thermostat) — main card: current temperature, target, relay on/off, heating control.',
+    'DS_SD_WHY4_TEMP'        => 'Drazice Boiler Temp Lower (°C sensor) — the lower probe temperature on its own.',
+    'DS_SD_WHY4_ENERGY'      => 'Drazice Boiler Energy, kWh (sensor) — cumulative energy consumed.',
+    'DS_SD_WHY4_SOC'         => 'Battery charge (SOC) is intentionally NOT created as a separate card: the module already reads it from your Deye object (deye_battery.soc by default). A separate device would only duplicate that object, so it has been removed.',
 );
 
 foreach ($dictionary as $k => $v) {
