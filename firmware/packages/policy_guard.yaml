@@ -43,7 +43,22 @@ select:
       - lambda: 'id(boiler_guard_component).request_mode(x);'
 
 # Lease heartbeat від MajorDoMo. POST сюди періодично поновлює дозвіл.
+# HDO on/off — як button (rest_api підтримує button/press, а не switch; це
+# економить RAM при критично малому heap). HDO НЕ safety-критичне: лише КАЖЕ
+# бойлеру, який зараз тариф. Вимкнення знімає тарифне обмеження (бойлер може
+# гріти поза своїм вікном), ввімкнення — повертає. Фактичний стан читається з
+# binary_sensor "Boiler HDO".
 button:
+  - platform: template
+    name: "Boiler HDO On"
+    id: boiler_hdo_on
+    on_press:
+      - lambda: 'id(boiler).hdo_enable_public("1");'
+  - platform: template
+    name: "Boiler HDO Off"
+    id: boiler_hdo_off
+    on_press:
+      - lambda: 'id(boiler).hdo_enable_public("0");'
   - platform: template
     name: "Boiler Lease Renew"
     id: boiler_lease_renew

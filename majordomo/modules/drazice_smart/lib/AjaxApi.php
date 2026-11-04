@@ -27,7 +27,7 @@ class AjaxApi
         'save_settings', 'send_pin', 'request_target', 'request_mode', 'boost', 'cancel_boost',
         'enable_automation', 'disable_automation', 'set_dry_run', 'release_ble', 'reconnect_ble',
         'lease_renew', 'ble_scan_clear', 'probe_host', 'scan_network', 'select_boiler',
-        'provision_simple_devices',
+        'provision_simple_devices', 'save_vacation', 'clear_vacation', 'set_hdo', 'create_scene',
     );
 
     /** True iff the request carries ajax=1. */
@@ -91,6 +91,7 @@ class AjaxApi
             'SCAN_FOUND', 'SCAN_IS_BOILER', 'SCAN_ESPHOME', 'SCAN_NEED_BASE_IP',
             'PROBE_BOILER', 'PROBE_REACHABLE', 'PROBE_UNREACHABLE',
             'ERROR_CSRF', 'SD_PROVISIONED', 'SD_ALL_LINKED', 'SD_PROVISION_FAIL', 'SD_UNAVAILABLE',
+            'SCENE_OK', 'SCENE_FAIL', 'VAC_BAD',
             'STB_CONNECTED', 'STB_REQUIRE_PIN', 'STB_AUTH', 'STB_DISCONNECTED',
             'STG_BOOT_SAFE', 'STG_IDLE', 'STG_HEATING_ALLOWED', 'STG_PAUSE_REQUESTED',
             'STG_COOLDOWN', 'STG_LEASE_EXPIRED', 'STG_DISCONNECTED', 'STG_FAULT',

@@ -43,6 +43,8 @@
     "requested_target":  {"domain": "number",       "name": "Boiler Requested Target", "unit": "°C", "writable": true, "min": 40, "max": 80, "step": 1, "guarded": true},
     "requested_mode":    {"domain": "select",       "name": "Boiler Requested Mode", "writable": true, "options": ["ANTIFREEZE","SMART","PROG","MANUAL"], "guarded": true},
     "lease_renew":       {"domain": "button",       "name": "Boiler Lease Renew",  "writable": true},
+    "hdo_on":            {"domain": "button",       "name": "Boiler HDO On",       "writable": true, "note": "вмикає HDO-декодер бойлера (повертає тарифне обмеження)"},
+    "hdo_off":           {"domain": "button",       "name": "Boiler HDO Off",      "writable": true, "note": "вимикає HDO-декодер (знімає тарифне обмеження; для сонячного оверрайду)"},
     "release_ble":       {"domain": "button",       "name": "Boiler Release BLE",  "writable": true},
     "reconnect_ble":     {"domain": "button",       "name": "Boiler Reconnect BLE","writable": true},
     "guard_state":       {"domain": "text_sensor",  "name": "Boiler Guard State",  "writable": false},

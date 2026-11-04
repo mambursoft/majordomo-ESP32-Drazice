@@ -32,6 +32,11 @@ class PolicyEngine
             'valid'  => false,
             'raw'    => $rawBatteryActive,
             'human'  => '',
+            // Language-neutral verdict code for the UI (Explain::power):
+            // no_signal | stale | no_polarity | battery | grid
+            'code'   => 'no_signal',
+            'raw_norm'    => '',
+            'active_norm' => '',
         );
 
         if ($rawBatteryActive === null || $rawBatteryActive === '') {
@@ -42,6 +47,7 @@ class PolicyEngine
         // Freshness: only enforce if a TTL is configured AND we have a timestamp.
         if ($freshnessTtlS > 0 && $sourceUpdatedUtc !== null) {
             if (($nowUtc - (int) $sourceUpdatedUtc) > $freshnessTtlS) {
+                $out['code'] = 'stale';
                 $out['human'] = 'Сигнал джерела застарів (freshness перевищено) — «невідомо».';
                 return $out;
             }
@@ -50,9 +56,12 @@ class PolicyEngine
         // Normalise both sides to string for a robust equality test.
         $rawNorm = self::norm($rawBatteryActive);
         $actNorm = self::norm($activeValue);
+        $out['raw_norm'] = $rawNorm;
+        $out['active_norm'] = $actNorm;
 
         if ($actNorm === '') {
             // Admin has not confirmed polarity yet.
+            $out['code'] = 'no_polarity';
             $out['human'] = 'Полярність сигналу не підтверджено адміністратором — «невідомо».';
             return $out;
         }
@@ -60,10 +69,12 @@ class PolicyEngine
         if ($rawNorm === $actNorm) {
             $out['source'] = 'battery';
             $out['valid'] = true;
+            $out['code'] = 'battery';
             $out['human'] = 'Живлення від батарей (сире значення «' . $rawNorm . '» = активне).';
         } else {
             $out['source'] = 'grid';
             $out['valid'] = true;
+            $out['code'] = 'grid';
             $out['human'] = 'Живлення від мережі (сире значення «' . $rawNorm . '» ≠ активного «' . $actNorm . '»).';
         }
         return $out;

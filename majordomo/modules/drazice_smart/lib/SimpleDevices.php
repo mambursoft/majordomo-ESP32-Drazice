@@ -123,7 +123,61 @@ class SimpleDevices
     public static function available()
     {
         return function_exists('getObject') && function_exists('setGlobal')
-            && class_exists('devices');
+            && (class_exists('devices') || self::canLoadDevicesClass());
+    }
+
+    /**
+     * The MajorDoMo `devices` module class is not always autoloaded. If the
+     * module directory is present, require it so class_exists() can succeed.
+     * Returns true if the class is available after the attempt.
+     */
+    public static function canLoadDevicesClass()
+    {
+        if (class_exists('devices')) {
+            return true;
+        }
+        // ROOT is defined by MajorDoMo; fall back to this file's location.
+        $roots = array();
+        if (defined('ROOT')) {
+            $roots[] = rtrim(ROOT, '/\\') . '/modules/devices/devices.class.php';
+        }
+        $roots[] = dirname(dirname(dirname(dirname(__DIR__)))) . '/modules/devices/devices.class.php';
+        foreach ($roots as $p) {
+            if (is_file($p)) {
+                require_once($p);
+                return class_exists('devices');
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Human-diagnosable reason why the integration is or is not available.
+     * Shown in the admin banner so a "not available" verdict is explainable
+     * instead of silent. Returns array(ok(bool), missing(list), note(string)).
+     */
+    public static function diagnose()
+    {
+        $missing = array();
+        foreach (array('getObject', 'setGlobal', 'getGlobal', 'addClassObject', 'SQLInsert', 'SQLSelectOne') as $fn) {
+            if (!function_exists($fn)) {
+                $missing[] = $fn . '()';
+            }
+        }
+        $hasClass = class_exists('devices') || self::canLoadDevicesClass();
+        if (!$hasClass) {
+            $missing[] = "class devices";
+        }
+        $note = '';
+        if ($hasClass) {
+            $dv = new \devices();
+            if (method_exists($dv, 'setDictionary')) {
+                $dv->setDictionary();
+            }
+            $types = (isset($dv->device_types) && is_array($dv->device_types)) ? array_keys($dv->device_types) : array();
+            $note = 'devices types: ' . (empty($types) ? '(none)' : implode(', ', array_slice($types, 0, 40)));
+        }
+        return array('ok' => empty($missing), 'missing' => $missing, 'note' => $note);
     }
 
     /**

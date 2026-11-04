@@ -63,6 +63,10 @@ class SmartBoiler : public PollingComponent,
   void set_pair_attempts(sensor::Sensor *s) { pair_attempts_sensor_ = s; }
   void set_connect_count(sensor::Sensor *s) { connect_count_sensor_ = s; }
 
+  // LOCAL (not upstream): public wrapper so policy_guard.yaml buttons can set
+  // the boiler HDO decoder on/off. Delegates to the protected setter.
+  void hdo_enable_public(const std::string &payload) { this->on_set_hdo_enabled(payload); }
+
  protected:
   void set_uid(const std::string &uid) { this->uid_ = uid; }
   void on_set_temperature(uint8_t temp);

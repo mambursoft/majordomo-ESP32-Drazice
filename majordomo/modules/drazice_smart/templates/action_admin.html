@@ -3,6 +3,8 @@
   .ds-root code { color:#444; background:#f2f3f5; }
   .ds-root .ds-field-error .form-control { border-color:#a94442; border-width:2px; box-shadow:0 0 0 3px rgba(169,68,66,.25); background:#fdf3f3; }
   .ds-root .ds-field-error > label { color:#a94442; }
+  .ds-root .ds-howto { white-space:pre-line; font-size:13px; background:#f7f9fb; border-left:3px solid #5bc0de; padding:6px 10px; margin:0 0 8px 0; }
+  .ds-root .ds-howto:empty { display:none; }
   .ds-root fieldset.ds-togglable { border:0; margin:0; padding:0; min-width:0; }
   .ds-root fieldset.ds-togglable[disabled] { opacity:.45; }
   .ds-root .form-inline .form-control { display:inline-block; width:auto; max-width:300px; vertical-align:middle; }
@@ -100,7 +102,7 @@
     </div></div></div>
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_POWER#></div>
-      <div style="font-size:22px;font-weight:bold;" data-ds="power_source">[#POWER_SOURCE#]</div>
+      <div style="font-size:22px;font-weight:bold;" data-ds="power_source_f">[#POWER_SOURCE_F#]</div>
       <small class="text-muted" data-ds="power_human">[#POWER_HUMAN#]</small>
     </div></div></div>
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
@@ -113,8 +115,9 @@
     <div class="panel-heading"><strong><#LANG_DS_ST_WHY#></strong></div>
     <div class="panel-body">
       <div style="font-size:16px;margin-bottom:6px;" data-ds="decision_human">[#DECISION_HUMAN#]</div>
+      <div class="ds-howto" data-ds="decision_howto">[#DECISION_HOWTO#]</div>
       <div class="text-muted" style="font-size:12px;">
-        <#LANG_DS_ST_DECISION#>: <span class="ds-st ds-st-muted" data-ds-st="action" data-ds="decision_action">[#DECISION_ACTION#]</span> · <span class="text-muted" data-ds="decision_reason">[#DECISION_REASON#]</span>
+        <#LANG_DS_ST_DECISION#>: <span class="ds-st ds-st-muted" data-ds-st="action" data-ds="decision_action">[#DECISION_ACTION#]</span> · <span class="text-muted" data-ds="decision_reason_f" title="[#DECISION_REASON#]">[#DECISION_REASON_F#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_GUARD#>: <span class="ds-st ds-st-muted" data-ds-st="guard" data-ds="guard_state">[#GUARD_STATE#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: <span data-ds="cooldown_f">[#COOLDOWN_F#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: <span data-ds="energy_f">[#ENERGY_F#]</span>
@@ -477,6 +480,31 @@
     <button class="btn btn-primary" type="submit"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
   </form>
 
+  <!-- ===== Vacation ===== -->
+  <div class="row">
+    <div class="col-lg-6"><div class="panel panel-default">
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-plane"></span> <#LANG_DS_VAC_TITLE#></strong></div>
+      <div class="panel-body">
+        <p class="ds-help" style="margin-top:0;"><#LANG_DS_VAC_HELP#></p>
+        <form method="post" action="?tab=policy" id="ds-vacation-form">
+          <input type="hidden" name="op" value="save_vacation"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="VACATION_ENABLED,VACATION_ALLOW_SURPLUS">
+          <div class="checkbox"><label><input type="checkbox" name="VACATION_ENABLED" value="1" [#if CFG_VACATION_ENABLED="1"#]checked[#endif#]> <#LANG_DS_VAC_ENABLE#></label></div>
+          <div class="row">
+            <div class="col-sm-4 form-group"><label><#LANG_DS_VAC_START#></label><input class="form-control" type="datetime-local" id="ds-vac-start" name="vacation_start" value="[#CFG_VACATION_START_LOCAL#]"></div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_VAC_DAYS#></label><input class="form-control" type="number" min="0" step="0.5" id="ds-vac-days" name="vacation_days" value="[#VACATION_DAYS#]"><span class="ds-help"><#LANG_DS_H_VAC_DAYS#></span></div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_VAC_END#></label><input class="form-control" type="datetime-local" id="ds-vac-end" name="vacation_end" value="[#CFG_VACATION_END_LOCAL#]"></div>
+          </div>
+          <div class="checkbox"><label><input type="checkbox" name="VACATION_ALLOW_SURPLUS" value="1" [#if CFG_VACATION_ALLOW_SURPLUS="1"#]checked[#endif#]> <#LANG_DS_VAC_SURPLUS#></label></div>
+          <span class="ds-help"><#LANG_DS_H_VAC_SURPLUS#></span>
+          <div style="margin-top:8px;">
+            <button class="btn btn-primary" type="submit"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
+            <button class="btn btn-default" type="submit" data-ds-op="clear_vacation"><#LANG_DS_VAC_CLEAR#></button>
+          </div>
+        </form>
+      </div>
+    </div></div>
+  </div>
+
   <h4 style="margin-top:20px;"><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_FC_NOW_TITLE#></h4>
   <div class="panel panel-default"><div class="panel-body">
     <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
@@ -593,8 +621,12 @@
   [#if SIMPLE_DEVICES_AVAILABLE="1"#]
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_SD_NOTE#></div>
   [#else#]
-    <div class="alert alert-warning"><#LANG_DS_SD_UNAVAILABLE#></div>
+    <div class="alert alert-warning">
+      <#LANG_DS_SD_UNAVAILABLE#>
+      <div style="font-size:12px;margin-top:6px;"><#LANG_DS_SD_DIAG_MISSING#>: <code>[#SD_DIAG_MISSING#]</code></div>
+    </div>
   [#endif#]
+  [#if SD_DIAG_NOTE!=""#]<div class="text-muted" style="font-size:11px;margin:-6px 0 8px 0;">[#SD_DIAG_NOTE#]</div>[#endif#]
   [#if PROVISION_RESULT="1"#]
     [#if PROVISION_KEY="SD_PROVISIONED"#]<div class="alert alert-success"><#LANG_DS_SD_PROVISIONED#></div>[#endif#]
     [#if PROVISION_KEY="SD_ALL_LINKED"#]<div class="alert alert-info"><#LANG_DS_SD_ALL_LINKED#></div>[#endif#]
@@ -670,6 +702,30 @@
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_PR_EVENTS#></div>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
+
+  <hr>
+  <!-- (e) HDO solar override + diagnostic switch -->
+  <h4><span class="glyphicon glyphicon-flash"></span> <#LANG_DS_HDO_TITLE#></h4>
+  <p class="text-muted"><#LANG_DS_HDO_INTRO#></p>
+  <form method="post" action="?tab=advanced">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="HDO_CONTROL_ENABLED,HDO_CONTROL_DRY_RUN">
+    <div class="checkbox"><label><input type="checkbox" name="HDO_CONTROL_ENABLED" value="1" [#if CFG_HDO_CONTROL_ENABLED="1"#]checked[#endif#]> <#LANG_DS_HDO_ENABLE#></label></div>
+    <div class="checkbox"><label><input type="checkbox" name="HDO_CONTROL_DRY_RUN" value="1" [#if CFG_HDO_CONTROL_DRY_RUN="1"#]checked[#endif#]> <#LANG_DS_HDO_DRY#></label></div>
+    <span class="ds-help"><#LANG_DS_H_HDO_DRY#></span>
+    <p style="font-size:12px;margin:8px 0 0 0;"><#LANG_DS_HDO_DESIRED#>: <strong>[#if HDO_DESIRED_F="1"#]<#LANG_DS_YES#>[#else#]<#LANG_DS_NO#>[#endif#]</strong> &nbsp;|&nbsp; <#LANG_DS_HDO_CURRENT#>: <span data-ds="hdo_f">[#HDO_F#]</span></p>
+    <button class="btn btn-primary" type="submit" style="margin-top:8px;"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
+  </form>
+  <div style="margin-top:10px;">
+    <span class="text-muted"><#LANG_DS_HDO_MANUAL#>:</span>
+    <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="1"><#LANG_DS_HDO_BTN_ON#></button>
+    <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="0"><#LANG_DS_HDO_BTN_OFF#></button>
+  </div>
+
+  <hr>
+  <!-- (f) Scene builder -->
+  <h4><span class="glyphicon glyphicon-dashboard"></span> <#LANG_DS_SCENE_TITLE#></h4>
+  <p class="text-muted"><#LANG_DS_SCENE_INTRO#></p>
+  <button class="btn btn-success" type="button" data-ds-op="create_scene"><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SCENE_BTN#></button>
   [#endif#]
 
   <!-- ================= LOG ================= -->

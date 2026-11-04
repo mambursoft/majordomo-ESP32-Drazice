@@ -43,6 +43,11 @@
 - **rest_api (наш компонент, не upstream):** буфери стеку для text_sensor
   збільшено (`MAX_TEXT=304`, `MAX_JSON=704`), щоб 280-байтова траса не
   обрізалась (JSON дублює текст у `value` і `state`). Контракт REST не змінено.
+- **2026-11 (HDO-керування):** у `smartboiler.h` додано публічний wrapper
+  `hdo_enable_public(const std::string&)`, що делегує в protected
+  `on_set_hdo_enabled()`. Потрібен, щоб template-button `Boiler HDO On/Off`
+  (packages/policy_guard.yaml) могли вмикати/вимикати HDO-декодер бойлера.
+  Самого upstream-методу не змінено.
 
 Решта проєкту (`boiler_guard`, модуль MajorDoMo, документація) — під MIT, див.
 кореневий `LICENSE`.

@@ -29,11 +29,13 @@ use DraziceSmart\SettingsSaver;
 use DraziceSmart\PairTrace;
 use DraziceSmart\StateCache;
 use DraziceSmart\AjaxApi;
+use DraziceSmart\Explain;
+use DraziceSmart\SceneBuilder;
 
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.9.1';
+    const MODULE_VERSION = '1.10.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -301,6 +303,20 @@ class drazice_smart extends module
             'CHARGE_PRIORITY_SOC'  => 100,
             'CHARGE_PRIORITY_HYST' => 5,
             'CHARGE_RELEASED_LATCHED' => 0,
+            // Vacation: hold ANTIFREEZE for a window. Times are unix UTC; 0 = unset.
+            'VACATION_ENABLED'     => 0,
+            'VACATION_START_UTC'   => 0,
+            'VACATION_END_UTC'     => 0,
+            'VACATION_ALLOW_SURPLUS' => 0, // 0 = pure ANTIFREEZE, 1 = still use free solar surplus
+            // HDO control ("solar override"): base state HDO on (boiler keeps its
+            // own cheap-tariff window). When daytime + SOC high + not yet at the
+            // surplus target, the module turns HDO OFF so the boiler may heat
+            // outside its window on free solar; restored on target/SOC-low.
+            // OFF by default; DRY-RUN by default (never writes HDO until armed).
+            'HDO_CONTROL_ENABLED'  => 0,
+            'HDO_CONTROL_DRY_RUN'  => 1,
+            'HDO_DESIRED'          => 1, // last desired HDO state the module computed
+            'HDO_OVERRIDE_LATCHED' => 0, // hysteresis latch for the solar override
             // Single boiler+ESP object (all properties, presence sessions/events).
             'BOILER_OBJECT'        => 'EspBoiler',
             // Simple Devices ("Простые устройства") integration — OFF by default.
@@ -605,6 +621,9 @@ EOD;
             'power_valid'    => $power['valid'],
             'power_human'    => $power['human'],
             'power_raw'      => $power['raw'],
+            'power_code'     => $power['code'],
+            'power_raw_norm' => $power['raw_norm'],
+            'power_active_norm' => $power['active_norm'],
             // Seconds since the power-source property was last WRITTEN in MajorDoMo
             // (pvalues.UPDATED); null when unknown. Shown next to the freshness TTL
             // so a "stale -> unknown" verdict is explainable in the UI.
@@ -618,6 +637,7 @@ EOD;
             'surplus_latched' => !empty($this->config['SURPLUS_LATCHED']),
             'charge_released_latched' => !empty($this->config['CHARGE_RELEASED_LATCHED']),
             'solar_surplus_enabled' => !empty($this->config['SOLAR_SURPLUS_ENABLED']),
+            'hdo_override_latched' => !empty($this->config['HDO_OVERRIDE_LATCHED']),
         );
     }
 
@@ -637,6 +657,11 @@ EOD;
             'charge_priority_enabled' => !empty($this->config['CHARGE_PRIORITY_ENABLED']),
             'charge_priority_soc' => isset($this->config['CHARGE_PRIORITY_SOC']) ? $this->config['CHARGE_PRIORITY_SOC'] : 100,
             'charge_priority_hyst' => isset($this->config['CHARGE_PRIORITY_HYST']) ? $this->config['CHARGE_PRIORITY_HYST'] : 5,
+            'vacation_enabled' => !empty($this->config['VACATION_ENABLED']),
+            'vacation_start_utc' => isset($this->config['VACATION_START_UTC']) ? (int) $this->config['VACATION_START_UTC'] : 0,
+            'vacation_end_utc' => isset($this->config['VACATION_END_UTC']) ? (int) $this->config['VACATION_END_UTC'] : 0,
+            'vacation_allow_surplus' => !empty($this->config['VACATION_ALLOW_SURPLUS']),
+            'hdo_control_enabled' => !empty($this->config['HDO_CONTROL_ENABLED']),
         );
     }
 
@@ -696,6 +721,9 @@ EOD;
             && !empty($decision['allowed']) && $decision['action'] === 'heat') {
             $this->applyDecision($decision);
         }
+
+        // HDO solar-override control (independent of the heat decision).
+        $this->applyHdoControl($snapshot);
 
         // Presence evaluation (optional).
         if (!empty($this->config['PRESENCE_ENABLED'])) {
@@ -789,6 +817,45 @@ EOD;
         }
     }
 
+    /**
+     * Compute and (unless dry-run) apply the HDO desired state. The latch is
+     * persisted so hysteresis survives across cycles. In dry-run the desired
+     * value is only recorded (HDO_DESIRED) and published, never written to the
+     * boiler — so you can watch the decision before arming it.
+     */
+    private function applyHdoControl($snapshot)
+    {
+        if (empty($this->config['HDO_CONTROL_ENABLED'])) {
+            return;
+        }
+        $h = Planner::evalHdoControl($snapshot, $this->plannerConfig());
+        $this->config['HDO_DESIRED'] = $h['desired'];
+        if ((int) (isset($this->config['HDO_OVERRIDE_LATCHED']) ? $this->config['HDO_OVERRIDE_LATCHED'] : 0) !== (int) $h['latched']) {
+            $this->config['HDO_OVERRIDE_LATCHED'] = (int) $h['latched'];
+        }
+        $this->saveConfig();
+
+        $dryRun = !empty($this->config['HDO_CONTROL_DRY_RUN'])
+            || empty($this->config['AUTOMATION_ENABLED']) || !empty($this->config['DRY_RUN']);
+        if ($dryRun || empty($snapshot['http_available'])) {
+            return;
+        }
+        // Only write when the boiler's current HDO differs from desired.
+        $current = isset($snapshot['hdo']) ? $snapshot['hdo'] : null;
+        if ($current !== null && (int) (bool) $current === (int) $h['desired']) {
+            return;
+        }
+        $t = $this->makeTransport();
+        $res = $t->pressButton($h['desired'] ? 'Boiler HDO On' : 'Boiler HDO Off');
+        Repository::saveCommand(array(
+            'ts_utc' => time(), 'command_id' => uniqid('hdo_', true), 'kind' => 'hdo',
+            'payload' => $h['desired'] ? '1' : '0',
+            'status' => ($res !== null ? 'sent' : 'failed'),
+            'detail' => ($res === null ? json_encode($t->getLastError()) : $h['reason']),
+        ));
+        StateCache::markDirty();
+    }
+
     private function applyDecision($decision)
     {
         $t = $this->makeTransport();
@@ -838,6 +905,21 @@ EOD;
         BoilerObject::set($o, 'controlState',   $d['action']);
         BoilerObject::set($o, 'decisionReason', $d['reason']);
         BoilerObject::set($o, 'decisionHuman',  $d['reason_human']);
+        BoilerObject::set($o, 'decisionAllowed', !empty($d['allowed']) ? 1 : 0);
+        BoilerObject::set($o, 'decisionLevel',  isset($d['priority_level']) ? (int) $d['priority_level'] : 0);
+        // One compact line meant to be logged to history (enable "store history"
+        // on this property in MajorDoMo to chart decisions over days):
+        //   "<action> <reason> target=<t> allowed=<0|1>"
+        BoilerObject::set($o, 'decisionLog',
+            $d['action'] . ' ' . $d['reason']
+            . ' target=' . ($d['target_c'] === null ? '-' : $d['target_c'])
+            . ' allowed=' . (!empty($d['allowed']) ? 1 : 0));
+        // HDO control reflection.
+        BoilerObject::set($o, 'hdoDesired', isset($this->config['HDO_DESIRED']) ? (int) $this->config['HDO_DESIRED'] : 1);
+        BoilerObject::set($o, 'hdoControlEnabled', !empty($this->config['HDO_CONTROL_ENABLED']) ? 1 : 0);
+        BoilerObject::set($o, 'vacationActive', (!empty($this->config['VACATION_ENABLED'])
+            && (int) $this->config['VACATION_START_UTC'] <= $s['now_utc']
+            && $s['now_utc'] < (int) $this->config['VACATION_END_UTC']) ? 1 : 0);
 
         // ESP diagnostics + guard + reported mode/target (from the same GET /state).
         BoilerObject::set($o, 'espUptime',      $diag['UPTIME']);
@@ -1106,6 +1188,13 @@ EOD;
     private function statusStrings($s, $d)
     {
         $cdKnown = array_key_exists('cooldown_known', $s) ? !empty($s['cooldown_known']) : true;
+        // Localised explanation (the planner's own reason_human is Ukrainian-only
+        // and stays for the decision log / object properties).
+        $tr = function ($k) {
+            $name = 'LANG_DS_' . $k;
+            return defined($name) ? constant($name) : null;
+        };
+        $ex = Explain::decision($s, $d, $this->config, $tr);
         return array(
             'http_available'    => !empty($s['http_available']),
             'temp_upper_f'      => $this->fmtVal($s['temp_upper'], ' °C'),
@@ -1116,13 +1205,16 @@ EOD;
             'cooldown_f'        => $this->fmtVal($cdKnown ? $s['cooldown_remaining_s'] : null, ' с'),
             'soc_f'             => $this->fmtVal($s['battery_soc'], ' %'),
             'power_source'      => (string) $s['power_source'],
-            'power_human'       => (string) $s['power_human'],
+            'power_source_f'    => Explain::powerWord((string) $s['power_source'], $tr),
+            'power_human'       => Explain::power($s, $this->config, $tr),
             'power_raw'         => ($s['power_raw'] === null ? '—' : (string) $s['power_raw']),
             'tariff_active'     => !empty($s['tariff_active']),
             'guard_state'       => ($s['guard_state'] === null ? '—' : (string) $s['guard_state']),
             'decision_action'   => (string) $d['action'],
             'decision_reason'   => (string) $d['reason'],
-            'decision_human'    => (string) $d['reason_human'],
+            'decision_reason_f' => $ex['label'],
+            'decision_human'    => $ex['text'],
+            'decision_howto'    => $ex['howto'],
             'decision_target_f' => $this->fmtVal($d['target_c'], ' °C'),
         );
     }
@@ -1152,6 +1244,9 @@ EOD;
         $out['DECISION_ACTION'] = SettingsSaver::esc($st['decision_action']);
         $out['DECISION_REASON'] = SettingsSaver::esc($st['decision_reason']);
         $out['DECISION_HUMAN']  = SettingsSaver::esc($st['decision_human']);
+        $out['DECISION_REASON_F'] = SettingsSaver::esc($st['decision_reason_f']);
+        $out['DECISION_HOWTO']  = SettingsSaver::esc($st['decision_howto']);
+        $out['POWER_SOURCE_F']  = SettingsSaver::esc($st['power_source_f']);
         $out['DECISION_TARGET_F'] = SettingsSaver::esc($st['decision_target_f']);
         $out['DECISION_ALLOWED'] = !empty($d['allowed']) ? 1 : 0;
 
@@ -1195,7 +1290,10 @@ EOD;
         // (install() only seeds keys at install time). Not persisted until the
         // user saves; the planner reads the same defaults via isset().
         foreach (array('CHARGE_PRIORITY_ENABLED' => 0, 'CHARGE_PRIORITY_SOC' => 100,
-            'CHARGE_PRIORITY_HYST' => 5, 'CHARGE_RELEASED_LATCHED' => 0, 'ALLOW_BATTERY_HEAT' => 0) as $dk => $dv) {
+            'CHARGE_PRIORITY_HYST' => 5, 'CHARGE_RELEASED_LATCHED' => 0, 'ALLOW_BATTERY_HEAT' => 0,
+            'TARIFF_ENABLED' => 1,
+            'VACATION_ENABLED' => 0, 'VACATION_START_UTC' => 0, 'VACATION_END_UTC' => 0, 'VACATION_ALLOW_SURPLUS' => 0,
+            'HDO_CONTROL_ENABLED' => 0, 'HDO_CONTROL_DRY_RUN' => 1, 'HDO_DESIRED' => 1, 'HDO_OVERRIDE_LATCHED' => 0) as $dk => $dv) {
             if (!isset($this->config[$dk])) {
                 $this->config[$dk] = $dv;
             }
@@ -1346,6 +1444,9 @@ EOD;
         $out['SIMPLE_DEVICES_ENABLED'] = !empty($this->config['SIMPLE_DEVICES_ENABLED']) ? 1 : 0;
         $out['SIMPLE_DEVICES_AVAILABLE'] = SimpleDevices::available() ? 1 : 0;
         if ($tab === 'advanced') {
+            $sdDiag = SimpleDevices::diagnose();
+            $out['SD_DIAG_MISSING'] = SettingsSaver::esc(empty($sdDiag['missing']) ? '' : implode(', ', $sdDiag['missing']));
+            $out['SD_DIAG_NOTE'] = SettingsSaver::esc($sdDiag['note']);
             // Link status of every simple device of the effective map, so the
             // "create" button is offered only when something is not linked yet.
             $sdRows = array();
@@ -1373,6 +1474,18 @@ EOD;
                 (isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler') . '.wifiObservationsJson'));
             $out['OPTS_HANDLERS_DATALIST'] = $this->handlerDatalistHtml();
         }
+        // Vacation: expose UTC window back as local datetime-local strings.
+        $vs = (int) (isset($this->config['VACATION_START_UTC']) ? $this->config['VACATION_START_UTC'] : 0);
+        $ve = (int) (isset($this->config['VACATION_END_UTC']) ? $this->config['VACATION_END_UTC'] : 0);
+        $out['CFG_VACATION_START_LOCAL'] = $this->utcToLocalDatetime($vs);
+        $out['CFG_VACATION_END_LOCAL'] = $this->utcToLocalDatetime($ve);
+        $out['VACATION_DAYS'] = ($vs > 0 && $ve > $vs) ? rtrim(rtrim(number_format(($ve - $vs) / 86400, 1, '.', ''), '0'), '.') : '';
+        $out['CFG_VACATION_ENABLED'] = !empty($this->config['VACATION_ENABLED']) ? 1 : 0;
+        $out['CFG_VACATION_ALLOW_SURPLUS'] = !empty($this->config['VACATION_ALLOW_SURPLUS']) ? 1 : 0;
+        $out['CFG_HDO_CONTROL_ENABLED'] = !empty($this->config['HDO_CONTROL_ENABLED']) ? 1 : 0;
+        $out['CFG_HDO_CONTROL_DRY_RUN'] = !empty($this->config['HDO_CONTROL_DRY_RUN']) ? 1 : 0;
+        $out['HDO_DESIRED_F'] = (isset($this->config['HDO_DESIRED']) && (int) $this->config['HDO_DESIRED'] === 0) ? 0 : 1;
+
         $hv = Transport::validateHost(isset($this->config['ESP_HOST']) ? $this->config['ESP_HOST'] : '');
         $out['HOST_OK'] = !empty($hv['ok']) ? 1 : 0;
         $out['HOST_REASON'] = $hv['reason'];
@@ -1868,6 +1981,30 @@ EOD;
                 $result = array('report' => $pr['report'], 'reload' => true);
                 $banner = $this->banner($pr['kind'], $pr['key']);
                 break;
+            case 'save_vacation':
+                $r = $this->opSaveVacation($req);
+                if (isset($r['reason'])) {
+                    return $this->badInput($op, $r['reason'], $this->banner('danger', 'VAC_BAD'));
+                }
+                $result = array('reload' => true);
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'clear_vacation':
+                $this->config['VACATION_ENABLED'] = 0;
+                $this->saveConfig();
+                $result = array('reload' => true);
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'set_hdo':
+                $r = $this->opSetHdo($req);
+                $result = array('ok' => !empty($r['ok']), 'desired' => $r['desired'], 'error' => $this->safeErr(isset($r['error']) ? $r['error'] : null));
+                $banner = !empty($r['ok']) ? $this->banner('success', 'SAVE_OK') : $this->espFailBanner(isset($r['error']) ? $r['error'] : null);
+                break;
+            case 'create_scene':
+                $r = $this->opCreateScene();
+                $result = array('ok' => !empty($r['ok']), 'detail' => isset($r['detail']) ? (string) $r['detail'] : '');
+                $banner = !empty($r['ok']) ? $this->banner('success', 'SCENE_OK') : $this->banner('danger', 'SCENE_FAIL');
+                break;
         }
         // Whatever the op did, the ESP state may have changed: next read refetches.
         StateCache::markDirty();
@@ -1992,6 +2129,102 @@ EOD;
     {
         $this->config['BOOST_UNTIL_UTC'] = 0;
         $this->saveConfig();
+    }
+
+    /**
+     * Save the vacation window. The form sends datetime-local strings in the
+     * configured timezone; store them as unix UTC. Accepts either an explicit
+     * end, or a start + duration in days (the client keeps the two in sync; we
+     * recompute the end from the duration when end is missing/empty).
+     */
+    private function opSaveVacation(array $req)
+    {
+        $enabled = (isset($req['VACATION_ENABLED']) && $req['VACATION_ENABLED']) ? 1 : 0;
+        $allowSurplus = (isset($req['VACATION_ALLOW_SURPLUS']) && $req['VACATION_ALLOW_SURPLUS']) ? 1 : 0;
+        $startRaw = isset($req['vacation_start']) ? trim((string) $req['vacation_start']) : '';
+        $endRaw = isset($req['vacation_end']) ? trim((string) $req['vacation_end']) : '';
+        $days = isset($req['vacation_days']) && is_numeric($req['vacation_days']) ? (float) $req['vacation_days'] : 0.0;
+
+        if (!$enabled) {
+            $this->config['VACATION_ENABLED'] = 0;
+            $this->config['VACATION_ALLOW_SURPLUS'] = $allowSurplus;
+            $this->saveConfig();
+            return array('ok' => true);
+        }
+
+        $start = $this->localDatetimeToUtc($startRaw);
+        if ($start === null) {
+            return array('reason' => 'bad_start');
+        }
+        $end = $this->localDatetimeToUtc($endRaw);
+        if ($end === null && $days > 0) {
+            $end = $start + (int) round($days * 86400);
+        }
+        if ($end === null || $end <= $start) {
+            return array('reason' => 'bad_end');
+        }
+        $this->config['VACATION_ENABLED'] = 1;
+        $this->config['VACATION_START_UTC'] = $start;
+        $this->config['VACATION_END_UTC'] = $end;
+        $this->config['VACATION_ALLOW_SURPLUS'] = $allowSurplus;
+        $this->saveConfig();
+        return array('ok' => true);
+    }
+
+    /** unix UTC -> "YYYY-MM-DDTHH:MM" in the configured timezone ('' if 0). */
+    private function utcToLocalDatetime($utc)
+    {
+        $utc = (int) $utc;
+        if ($utc <= 0) {
+            return '';
+        }
+        $tzName = isset($this->config['TIMEZONE']) ? $this->config['TIMEZONE'] : 'Europe/Kyiv';
+        try {
+            $dt = new \DateTime('@' . $utc);
+            $dt->setTimezone(new \DateTimeZone($tzName));
+            return $dt->format('Y-m-d\TH:i');
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    /** "YYYY-MM-DDTHH:MM" in the configured timezone -> unix UTC, or null. */
+    private function localDatetimeToUtc($s)
+    {
+        $s = trim((string) $s);
+        if ($s === '' || !preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/', $s)) {
+            return null;
+        }
+        $tzName = isset($this->config['TIMEZONE']) ? $this->config['TIMEZONE'] : 'Europe/Kyiv';
+        try {
+            $tz = new \DateTimeZone($tzName);
+            $dt = new \DateTime(str_replace('T', ' ', $s), $tz);
+            return $dt->getTimestamp();
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Diagnostic HDO on/off switch (Advanced tab). Writes the boiler's HDO
+     * decoder enable flag through the guarded REST entity. Also stores the
+     * desired value so the cycle does not immediately revert it.
+     */
+    private function opSetHdo(array $req)
+    {
+        $on = (isset($req['value']) && (string) $req['value'] === '1') ? 1 : 0;
+        $t = $this->makeTransport();
+        $res = $t->pressButton($on ? 'Boiler HDO On' : 'Boiler HDO Off');
+        $this->config['HDO_DESIRED'] = $on;
+        $this->saveConfig();
+        return array('ok' => ($res !== null), 'desired' => $on, 'error' => $t->getLastError());
+    }
+
+    /** Build the MajorDoMo scene from the boiler object properties. */
+    private function opCreateScene()
+    {
+        $object = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
+        return SceneBuilder::create($object);
     }
 
     private function opSetAutomation($on)

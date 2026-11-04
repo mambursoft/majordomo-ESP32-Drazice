@@ -55,6 +55,7 @@ class Planner
         $absoluteMax = isset($c['absolute_max_c']) ? (float) $c['absolute_max_c'] : 70.0;
 
         // --- Level 2: data/connectivity/control sanity -----------------------
+        // (checked before vacation so we never command a boiler we cannot read)
         if (empty($s['http_available'])) {
             return self::fill($r, 'hold', null, null,
                 'esp_unreachable', 2, false,
@@ -76,6 +77,21 @@ class Planner
             return self::fill($r, 'hold', 40.0, null,
                 'cooldown_active', 3, false,
                 'Триває обов\'язкова пауза після тривалого нагріву. Нагрів не дозволяємо.');
+        }
+
+        // --- Level 3.5: vacation ---------------------------------------------
+        // While a vacation window is active the boiler is kept at ANTIFREEZE
+        // (freeze protection only). If the user opted to still use free solar
+        // surplus during the vacation, the surplus rule below (Level 8a) may
+        // override it; everything else (comfort, tariff, boost) is suppressed.
+        $vac = self::evalVacation($s, $c);
+        if ($vac['active']) {
+            $surplusDuringVac = !empty($c['vacation_allow_surplus']) && self::evalSolarSurplus($s, $c)['active'];
+            if (!$surplusDuringVac) {
+                return self::fill($r, 'hold', null, 'ANTIFREEZE',
+                    'vacation', 3, false, $vac['human']);
+            }
+            // else: fall through to let the surplus rule heat with free solar.
         }
 
         // --- Level 4: power source -------------------------------------------
@@ -110,8 +126,13 @@ class Planner
                 . 'Увімкніть «Дозволити нагрів від батарей» або boost з дозволом на батарею, якщо справді потрібна тепла вода.');
         }
 
+        // During a vacation with "use solar surplus" on, ONLY the surplus rule
+        // may heat: skip boost / comfort / tariff so free solar is the only
+        // thing that raises the temperature.
+        $vacSurplusOnly = $vac['active'];
+
         // --- Level 6: manual boost (does not bypass cooldown/continuous-heat) -
-        if ($boostActive) {
+        if (!$vacSurplusOnly && $boostActive) {
             $bt = isset($c['boost_target_c']) ? (float) $c['boost_target_c'] : $absoluteMax;
             if ($bt > $absoluteMax) {
                 $bt = $absoluteMax;
@@ -139,7 +160,7 @@ class Planner
         }
 
         // --- Level 7: comfort minimum ----------------------------------------
-        if ($s['temp_upper'] < $comfortMin) {
+        if (!$vacSurplusOnly && $s['temp_upper'] < $comfortMin) {
             return self::fill($r, 'heat', $comfortMin, 'MANUAL',
                 'comfort_minimum', 7, true,
                 'Температура нижча за комфортний мінімум ' . self::fmt($comfortMin) . ' °C — гріємо.');
@@ -163,7 +184,7 @@ class Planner
         }
 
         // --- Level 8b: cheap tariff window -----------------------------------
-        if (!empty($s['tariff_active'])) {
+        if (!$vacSurplusOnly && !empty($s['tariff_active'])) {
             if ($s['temp_upper'] < $nightTarget) {
                 return self::fill($r, 'heat', $nightTarget, 'MANUAL',
                     'cheap_tariff', 8, true,
@@ -174,10 +195,114 @@ class Planner
                 'Дешевий тариф, але нічну ціль уже досягнуто.');
         }
 
+        // During a vacation with surplus allowed but no surplus right now:
+        // stay at ANTIFREEZE, not generic idle.
+        if ($vacSurplusOnly) {
+            return self::fill($r, 'hold', null, 'ANTIFREEZE',
+                'vacation', 3, false, $vac['human']);
+        }
+
         // Nothing to do: comfort satisfied, day tariff, no surplus.
         return self::fill($r, 'hold', null, null,
             'idle_comfort_ok', 8, false,
             'Нема підстав гріти: комфорт забезпечено, тариф денний, надлишку нема.');
+    }
+
+    /**
+     * HDO "solar override" decision. Base state is HDO on (the boiler obeys its
+     * own cheap-tariff window). The module turns HDO OFF only to let the boiler
+     * use free solar outside that window:
+     *
+     *   desired = ON   normally
+     *   desired = OFF  when the solar surplus is active AND temp_upper is below
+     *                  the surplus target (so the boiler may heat now on free
+     *                  solar regardless of its tariff window).
+     *
+     * Hysteresis via the latch carried in snapshot['hdo_override_latched']:
+     * once OFF, stay OFF until the surplus ends (surplus rule already has its
+     * own SOC hysteresis) or the surplus target is reached.
+     * Vacation (without surplus) forces HDO back ON — no override on vacation.
+     *
+     * @return array enabled, desired(1|0), reason, human, latched(1|0)
+     */
+    public static function evalHdoControl($s, $c)
+    {
+        $out = array('enabled' => false, 'desired' => 1, 'reason' => 'hdo_default_on',
+            'human' => 'HDO увімкнено: бойлер гріє у власному тарифному вікні.', 'latched' => 0);
+        if (empty($c['hdo_control_enabled'])) {
+            return $out;
+        }
+        $out['enabled'] = true;
+
+        // Vacation without surplus: no override, keep HDO as the boiler default.
+        $vac = self::evalVacation($s, $c);
+        if ($vac['active'] && empty($c['vacation_allow_surplus'])) {
+            $out['reason'] = 'hdo_vacation_on';
+            $out['human'] = 'Відпустка: HDO лишаємо як є, оверрайд вимкнено.';
+            return $out;
+        }
+
+        $surplus = self::evalSolarSurplus($s, $c);
+        $target = isset($c['solar_target_c']) ? (float) $c['solar_target_c'] : 65.0;
+        $max = isset($c['absolute_max_c']) ? (float) $c['absolute_max_c'] : 70.0;
+        if ($target > $max) {
+            $target = $max;
+        }
+        $temp = isset($s['temp_upper']) ? $s['temp_upper'] : null;
+        $latched = !empty($s['hdo_override_latched']);
+
+        if ($surplus['active'] && $temp !== null && (float) $temp < $target) {
+            $latched = true;
+        }
+        // Release the override when surplus ended or the target is reached.
+        if (!$surplus['active'] || ($temp !== null && (float) $temp >= $target)) {
+            $latched = false;
+        }
+
+        $out['latched'] = $latched ? 1 : 0;
+        if ($latched) {
+            $out['desired'] = 0;
+            $out['reason'] = 'hdo_solar_override';
+            $out['human'] = 'Сонячний надлишок: тимчасово вимикаємо HDO, щоб бойлер грів на безплатному сонці до '
+                . self::fmt($target) . ' °C незалежно від тарифного вікна.';
+        }
+        return $out;
+    }
+
+    /**
+     * Vacation window. Active when now_utc is within [start, end). The caller
+     * supplies vacation_enabled, vacation_start_utc, vacation_end_utc in $c.
+     *
+     * @return array active(bool), human(string)
+     */
+    public static function evalVacation($s, $c)
+    {
+        $out = array('active' => false, 'human' => '');
+        if (empty($c['vacation_enabled'])) {
+            return $out;
+        }
+        $now = isset($s['now_utc']) ? (int) $s['now_utc'] : 0;
+        $start = isset($c['vacation_start_utc']) ? (int) $c['vacation_start_utc'] : 0;
+        $end = isset($c['vacation_end_utc']) ? (int) $c['vacation_end_utc'] : 0;
+        if ($start <= 0 || $end <= 0 || $end <= $start) {
+            return $out;
+        }
+        if ($now < $start) {
+            $out['human'] = 'Відпустка заплановано, але ще не почалася.';
+            return $out;
+        }
+        if ($now >= $end) {
+            $out['human'] = 'Відпустка завершилася.';
+            return $out;
+        }
+        $out['active'] = true;
+        $daysLeft = (int) ceil(($end - $now) / 86400);
+        $out['human'] = 'Режим відпустки: тримаємо захист від замерзання (ANTIFREEZE). '
+            . 'Залишилось днів: ' . $daysLeft . '.';
+        if (!empty($c['vacation_allow_surplus'])) {
+            $out['human'] .= ' Сонячний надлишок дозволено (безплатна енергія).';
+        }
+        return $out;
     }
 
     /**

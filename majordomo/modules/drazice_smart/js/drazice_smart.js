@@ -393,6 +393,12 @@
     var nodes;
     var i;
     applyData('data-ds', d);
+    nodes = all('[data-ds="decision_reason_f"]');
+    for (i = 0; i < nodes.length; i++) {
+      if (isPrimitive(d.decision_reason)) {
+        nodes[i].setAttribute('title', String(d.decision_reason)); // raw code as tooltip
+      }
+    }
     nodes = all('[data-ds-conn]');
     for (i = 0; i < nodes.length; i++) {
       setShown(nodes[i], nodes[i].getAttribute('data-ds-conn') === d.conn);
@@ -1124,10 +1130,9 @@
           window.location.reload();
           return;
         }
-        if (op === 'provision_simple_devices') {
-          // The link-status table is server-rendered: reload after the banner
-          // has been visible for a moment.
-          window.setTimeout(function () { window.location.reload(); }, 1500);
+        if (op === 'provision_simple_devices' || op === 'save_vacation' || op === 'clear_vacation') {
+          // Server-rendered blocks change: reload after the banner is visible.
+          window.setTimeout(function () { window.location.reload(); }, 1200);
           return;
         }
         if (op === 'send_pin' && form) {
@@ -1166,6 +1171,71 @@
     sendMutation(opField.value, params, button, form);
   });
 
+  // Generic AJAX buttons: <button data-ds-op="OP" [data-ds-value="V"]>. The op
+  // must be in MUTATING_OPS. A "clear_vacation" button inside a form must NOT
+  // submit that form — we intercept and send only the op.
+  function bindOpButtons() {
+    var btns = all('[data-ds-op]');
+    var i;
+    for (i = 0; i < btns.length; i++) {
+      (function (btn) {
+        var op = btn.getAttribute('data-ds-op');
+        if (!inList(MUTATING_OPS, op)) {
+          return;
+        }
+        btn.setAttribute('type', 'button'); // never submit a surrounding form
+        btn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          var params = new URLSearchParams();
+          var v = btn.getAttribute('data-ds-value');
+          if (v !== null) {
+            params.set('value', v);
+          }
+          sendMutation(op, params, btn, null);
+        });
+      })(btns[i]);
+    }
+  }
+
+  // Vacation: start + days <-> end kept consistent. Editing days or start
+  // recomputes end; editing end recomputes days. Pure client-side convenience;
+  // the server recomputes authoritatively on save.
+  function bindVacationSync() {
+    var start = byId('ds-vac-start');
+    var days = byId('ds-vac-days');
+    var end = byId('ds-vac-end');
+    if (!start || !days || !end) {
+      return;
+    }
+    var parse = function (s) {
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    var fmt = function (d) {
+      // local YYYY-MM-DDTHH:MM for datetime-local
+      var p = function (n) { return (n < 10 ? '0' : '') + n; };
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+        + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+    };
+    var fromDays = function () {
+      var s = parse(start.value);
+      var n = parseFloat(days.value);
+      if (s && !isNaN(n) && n > 0) {
+        end.value = fmt(new Date(s.getTime() + n * 86400000));
+      }
+    };
+    var fromEnd = function () {
+      var s = parse(start.value);
+      var e = parse(end.value);
+      if (s && e && e > s) {
+        days.value = String(Math.round(((e - s) / 86400000) * 10) / 10);
+      }
+    };
+    start.addEventListener('change', fromDays);
+    days.addEventListener('input', fromDays);
+    end.addEventListener('change', fromEnd);
+  }
+
   // ------------------------------------------------------------------ start
 
   function start() {
@@ -1176,6 +1246,8 @@
     decorateAll(); // server-rendered raw state codes -> translated badges
     decorateServerErrors(); // highlight fields named in a server-rendered save error
     bindToggles(); // master checkboxes that enable/disable a whole block
+    bindOpButtons(); // generic data-ds-op buttons (set_hdo, create_scene, clear_vacation)
+    bindVacationSync(); // keep vacation start/days/end in sync
 
     if (refresh) {
       refresh.addEventListener('click', function () {

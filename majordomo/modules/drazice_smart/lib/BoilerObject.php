@@ -41,19 +41,20 @@ class BoilerObject
      */
     public static function catalogue()
     {
-        $c = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null); };
-        $w = function ($desc, $method) { return array('desc' => $desc, 'control' => true, 'method' => $method); };
+        $c = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => 0); };
+        $h = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => 1); };
+        $w = function ($desc, $method) { return array('desc' => $desc, 'control' => true, 'method' => $method, 'history' => 0); };
 
         $applied = '⚙ КЕРУВАННЯ: зміна цієї властивості ЗАСТОСОВУЄТЬСЯ ДО БОЙЛЕРА через ESP32 (з дотриманням cooldown/lease). ';
 
         return array(
             // --- read-only telemetry from the boiler ---
-            'tempUpper'      => $c('Температура верхнього датчика бойлера, °C (лише читання, з ESP).'),
-            'tempLower'      => $c('Температура нижнього датчика бойлера, °C (лише читання, з ESP).'),
+            'tempUpper'      => $h('Температура верхнього датчика бойлера, °C (лише читання, з ESP). Історія увімкнена.'),
+            'tempLower'      => $h('Температура нижнього датчика бойлера, °C (лише читання, з ESP). Історія увімкнена.'),
             'heating'        => $c('Чи гріє бойлер зараз (Heat), 1/0 (лише читання, з ESP).'),
             'hdo'            => $c('Стан тарифного входу HDO, 1/0 (лише читання, з ESP).'),
             'reportedMode'   => $c('Поточний режим бойлера, повідомлений бойлером (лише читання).'),
-            'energyTotalKwh' => $c('Накопичена енергія бойлера, кВт·год (лише читання, з ESP).'),
+            'energyTotalKwh' => $h('Накопичена енергія бойлера, кВт·год (лише читання, з ESP). Історія увімкнена — для графіків споживання по годинах/днях/місяцях.'),
             'boilerVersion'  => $c('Версія прошивки/серійний номер бойлера (лише читання).'),
             'boilerName'     => $c('Назва бойлера (лише читання).'),
             'bleState'       => $c('Стан BLE-з\'єднання ESP↔бойлер (лише читання).'),
@@ -76,6 +77,13 @@ class BoilerObject
             'controlState'   => $c('Поточна дія планувальника: heat/hold (лише читання).'),
             'decisionReason' => $c('Коротка причина рішення планувальника (лише читання).'),
             'decisionHuman'  => $c('Пояснення «чому гріє / чому ні» людською мовою (лише читання).'),
+            'decisionAllowed'=> $c('Чи дозволено нагрів поточним рішенням, 1/0 (лише читання).'),
+            'decisionLevel'  => $c('Рівень пріоритету спрацьованого правила (лише читання).'),
+            'decisionLog'    => $h('Компактний рядок рішення. Історія увімкнена — видно рішення за останні дні.'),
+            'batterySocHist' => $h('SOC батареї з історією (окрема копія для графіка).'),
+            'hdoDesired'     => $c('Бажаний стан HDO, порахований модулем, 1/0 (лише читання).'),
+            'hdoControlEnabled' => $c('Чи ввімкнено керування HDO (сонячний оверрайд), 1/0 (лише читання).'),
+            'vacationActive' => $c('Чи активний режим відпустки зараз, 1/0 (лише читання).'),
             'connected'      => $c('Чи доступний ESP32 по HTTP, 1/0 (лише читання).'),
             'lastSampleUtc'  => $c('UTC час останнього зчитування телеметрії (лише читання).'),
 
@@ -121,7 +129,7 @@ class BoilerObject
         // 2. Properties with descriptions; methods for control properties.
         $created = 0;
         foreach (self::catalogue() as $name => $def) {
-            self::ensureProperty($objectId, $name, $def['desc']);
+            self::ensureProperty($objectId, $name, $def['desc'], !empty($def['history']));
             if (!empty($def['control']) && $def['method']) {
                 self::ensureControlMethod($objectId, $objectTitle, $name, $def['method'], $moduleName);
             }
@@ -131,16 +139,29 @@ class BoilerObject
     }
 
     /** Create one property (with DESCRIPTION) on the object if missing. */
-    private static function ensureProperty($objectId, $name, $description)
+    private static function ensureProperty($objectId, $name, $description, $keepHistory = false)
     {
+        // KEEP_HISTORY in MajorDoMo is a number of days (0 = off). Use 30 days
+        // for history-enabled properties so charts have data without filling
+        // the DB forever. Never DOWNGRADE a user's larger retention.
+        $histDays = $keepHistory ? 30 : 0;
         $rec = SQLSelectOne("SELECT ID FROM properties WHERE OBJECT_ID=" . (int) $objectId
             . " AND TITLE='" . self::safe($name) . "'");
         if (is_array($rec) && !empty($rec['ID'])) {
-            // Keep the description in sync (so "applied to boiler" stays visible).
-            $upd = SQLSelectOne("SELECT ID, DESCRIPTION FROM properties WHERE ID=" . (int) $rec['ID']);
-            if (is_array($upd) && isset($upd['DESCRIPTION']) && $upd['DESCRIPTION'] !== $description) {
-                $upd['DESCRIPTION'] = $description;
-                SQLUpdate('properties', $upd);
+            $upd = SQLSelectOne("SELECT ID, DESCRIPTION, KEEP_HISTORY FROM properties WHERE ID=" . (int) $rec['ID']);
+            $changed = false;
+            if (is_array($upd)) {
+                if (isset($upd['DESCRIPTION']) && $upd['DESCRIPTION'] !== $description) {
+                    $upd['DESCRIPTION'] = $description;
+                    $changed = true;
+                }
+                if ($keepHistory && (int) (isset($upd['KEEP_HISTORY']) ? $upd['KEEP_HISTORY'] : 0) < $histDays) {
+                    $upd['KEEP_HISTORY'] = $histDays;
+                    $changed = true;
+                }
+                if ($changed) {
+                    SQLUpdate('properties', $upd);
+                }
             }
             return (int) $rec['ID'];
         }
@@ -149,7 +170,7 @@ class BoilerObject
             'CLASS_ID'    => 0,
             'TITLE'       => $name,
             'DESCRIPTION' => $description,
-            'KEEP_HISTORY'=> 0,
+            'KEEP_HISTORY'=> $histDays,
         );
         return (int) SQLInsert('properties', $prop);
     }
