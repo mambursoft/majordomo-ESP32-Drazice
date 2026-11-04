@@ -1,4 +1,5 @@
 #include "rest_api.h"
+#include "json_stream.h"
 
 #include "esphome/core/application.h"
 #include "esphome/core/entity_base.h"
@@ -298,6 +299,12 @@ void RestApiComponent::handle_client_(WiFiClient &client) {
     client.stop();
     return;
   }
+  // Пакетний стан (лише GET, після перевірки auth).
+  if (is_get && std::strcmp(path, "/state") == 0) {
+    this->serve_state_(client);
+    client.stop();
+    return;
+  }
   char *domain = path + 1;
   char *name_seg = std::strchr(domain, '/');
   if (name_seg == nullptr) {
@@ -374,7 +381,7 @@ void RestApiComponent::serve_sensor_(WiFiClient &client, const char *name) {
   std::string oid = e->get_object_id();
   char json[MAX_JSON];
   // NaN/без стану -> value ПРОПУСКАЄМО (не 0), state:"NA".
-  if (!e->has_state() || std::isnan(e->state)) {
+  if (!e->has_state() || !std::isfinite(e->state)) {
     snprintf(json, MAX_JSON, "{\"id\":\"sensor-%s\",\"value\":null,\"state\":\"NA\"}", oid.c_str());
   } else {
     char vb[32];
@@ -423,7 +430,7 @@ void RestApiComponent::serve_number_(WiFiClient &client, const char *name) {
     return this->send_status_(client, 404, "Not Found");
   std::string oid = e->get_object_id();
   char json[MAX_JSON];
-  if (!e->has_state() || std::isnan(e->state)) {
+  if (!e->has_state() || !std::isfinite(e->state)) {
     snprintf(json, MAX_JSON, "{\"id\":\"number-%s\",\"value\":null,\"state\":\"NA\"}", oid.c_str());
   } else {
     char vb[32];
@@ -447,6 +454,92 @@ void RestApiComponent::serve_select_(WiFiClient &client, const char *name) {
     snprintf(json, MAX_JSON, "{\"id\":\"select-%s\",\"value\":\"%s\",\"state\":\"%s\"}", oid.c_str(), esc, esc);
   }
   this->send_json_(client, json);
+}
+
+// ---- Пакетний GET /state ----------------------------------------------------
+
+typedef JsonStream<WiFiClient> StateStream;
+
+// Початок значення entity: "name":{ (кома між елементами через first).
+static void state_begin_(StateStream &js, bool &first, const StringRef &n) {
+  if (!first)
+    js.raw(",");
+  first = false;
+  js.str(n.c_str(), n.size());
+  js.raw(":");
+}
+
+// sensor / number: {"value":<num>,"state":"<%g>"} або {"value":null,"state":"NA"}.
+template<typename Container> static void state_numeric_(StateStream &js, const Container &list) {
+  bool first = true;
+  js.raw("{");
+  for (auto *e : list) {
+    if (e->is_internal())
+      continue;
+    state_begin_(js, first, e->get_name());
+    js.numeric_entry(e->has_state(), e->state);
+  }
+  js.raw("}");
+}
+
+// text_sensor / select: {"value":"<esc>","state":"<esc>"} або обидва null.
+template<typename Container> static void state_text_(StateStream &js, const Container &list) {
+  bool first = true;
+  js.raw("{");
+  for (auto *e : list) {
+    if (e->is_internal())
+      continue;
+    state_begin_(js, first, e->get_name());
+    if (!e->has_state()) {
+      js.raw("{\"value\":null,\"state\":null}");
+    } else {
+      js.raw("{\"value\":");
+      js.str(e->state.c_str());
+      js.raw(",\"state\":");
+      js.str(e->state.c_str());
+      js.raw("}");
+    }
+  }
+  js.raw("}");
+}
+
+void RestApiComponent::serve_state_(WiFiClient &client) {
+  // HTTP/1.0 без Content-Length: тіло закінчується закриттям з'єднання.
+  static const char HDR[] =
+      "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n"
+      "Connection: close\r\n\r\n";
+  char hdr[sizeof(HDR)];
+  int n = snprintf(hdr, sizeof(hdr), "%s", HDR);
+  client.write((const uint8_t *) hdr, (size_t) n);
+
+  StateStream js(client);
+  js.raw("{\"sensor\":");
+  state_numeric_(js, App.get_sensors());
+
+  js.raw(",\"binary_sensor\":{");
+  bool first = true;
+  for (auto *e : App.get_binary_sensors()) {
+    if (e->is_internal())
+      continue;
+    state_begin_(js, first, e->get_name());
+    if (!e->has_state()) {
+      js.raw("{\"value\":null,\"state\":\"NA\"}");
+    } else if (e->state) {
+      js.raw("{\"value\":true,\"state\":\"ON\"}");
+    } else {
+      js.raw("{\"value\":false,\"state\":\"OFF\"}");
+    }
+  }
+  js.raw("}");
+
+  js.raw(",\"text_sensor\":");
+  state_text_(js, App.get_text_sensors());
+  js.raw(",\"number\":");
+  state_numeric_(js, App.get_numbers());
+  js.raw(",\"select\":");
+  state_text_(js, App.get_selects());
+  js.raw("}");
+  js.flush();
 }
 
 // ---- POST обробники ---------------------------------------------------------

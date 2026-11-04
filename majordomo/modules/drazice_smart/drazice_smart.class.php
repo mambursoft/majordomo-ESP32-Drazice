@@ -27,9 +27,14 @@ use DraziceSmart\SimpleDevices;
 use DraziceSmart\BoilerObject;
 use DraziceSmart\SettingsSaver;
 use DraziceSmart\PairTrace;
+use DraziceSmart\StateCache;
+use DraziceSmart\AjaxApi;
 
 class drazice_smart extends module
 {
+    /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
+    const MODULE_VERSION = '1.8.0';
+
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
     public $module_category;
@@ -68,7 +73,8 @@ class drazice_smart extends module
             || !$this->tableExists('drazice_telemetry')
             || !$this->tableExists('drazice_commands')
             || !$this->tableExists('drazice_presence')
-            || !$this->tableExists('drazice_people')) {
+            || !$this->tableExists('drazice_people')
+            || !$this->tableExists('drazice_state_cache')) {
             $this->dbInstall();
         }
     }
@@ -360,14 +366,34 @@ drazice_people: BLE_MAC varchar(32) NOT NULL DEFAULT ''
 drazice_people: WIFI_MAC varchar(32) NOT NULL DEFAULT ''
 drazice_people: BEACON_UUID varchar(48) NOT NULL DEFAULT ''
 drazice_people: CREATED datetime
+
+drazice_state_cache: ID int(10) unsigned NOT NULL auto_increment
+drazice_state_cache: FETCHED_UTC int(11) NOT NULL DEFAULT '0'
+drazice_state_cache: ATTEMPT_UTC int(11) NOT NULL DEFAULT '0'
+drazice_state_cache: LAST_OK tinyint(1) NOT NULL DEFAULT '0'
+drazice_state_cache: SOURCE varchar(8) NOT NULL DEFAULT ''
+drazice_state_cache: DIRTY tinyint(1) NOT NULL DEFAULT '0'
+drazice_state_cache: PAYLOAD text
 EOD;
         parent::dbInstall($data);
     }
 
     // ---- transport helper ---------------------------------------------------
 
+    /** @var Transport|null test seam: replaces the real cURL transport */
+    private $transportOverride = null;
+
+    /** Inject a transport (tests / measure_calls.php). null restores the default. */
+    public function setTransport($t)
+    {
+        $this->transportOverride = $t;
+    }
+
     private function makeTransport()
     {
+        if ($this->transportOverride !== null) {
+            return $this->transportOverride;
+        }
         return new Transport(array(
             'host'   => isset($this->config['ESP_HOST']) ? $this->config['ESP_HOST'] : '',
             'port'   => isset($this->config['ESP_PORT']) ? (int) $this->config['ESP_PORT'] : 80,
@@ -377,19 +403,143 @@ EOD;
         ));
     }
 
-    /** Build an immutable snapshot for the pure planner. Reads ESP + properties. */
+    // ---- ESP state cache (ONE batch GET /state, DB snapshot) ----------------
+
+    /** Cache staleness threshold derived from POLL_INTERVAL_S. */
+    private function staleAfterS()
+    {
+        return StateCache::staleAfter(isset($this->config['POLL_INTERVAL_S']) ? (int) $this->config['POLL_INTERVAL_S'] : 15);
+    }
+
+    /** Package a cache row (+ optional just-fetched map) as array(map, meta, error). */
+    private function stateResult($row, $now, $freshMap = null, $error = array())
+    {
+        $map = ($freshMap !== null) ? StateCache::redact($freshMap)
+            : ($row !== null ? StateCache::decode(isset($row['PAYLOAD']) ? $row['PAYLOAD'] : '') : array());
+        return array(
+            'map'   => $map,
+            'meta'  => StateCache::meta($row, $now, $this->staleAfterS()),
+            'error' => $error,
+        );
+    }
+
+    /** Cached state ONLY. Never contacts the ESP (admin()/usual() render path). */
+    public function stateFromCache()
+    {
+        return $this->stateResult(StateCache::load(), time());
+    }
+
+    /**
+     * Cached state, refetched with ONE GET /state when needed.
+     *  - !$force and the last attempt is < FRESH_S old and nothing is dirty:
+     *    served from the cache, the ESP is NOT contacted (coalescing);
+     *  - otherwise a non-blocking-with-3s-wait flock (the ESP serves one client
+     *    at a time) guards the fetch; the row is re-read after taking the lock
+     *    (double-check) so concurrent requests produce a single GET.
+     * A failed fetch keeps the old payload (meta.fetch_ok=false, stale=true).
+     *
+     * @return array map, meta, error
+     */
+    public function refreshState($force = false, $mustFetch = false)
+    {
+        $now = time();
+        $row = StateCache::load();
+        if (!$force && $this->cacheServesRead($row, $now)) {
+            return $this->stateResult($row, $now);
+        }
+
+        $fh = @fopen(sys_get_temp_dir() . '/drazice_state.lock', 'c');
+        $locked = false;
+        if ($fh) {
+            $deadline = microtime(true) + 3.0;
+            do {
+                $locked = flock($fh, LOCK_EX | LOCK_NB);
+                if ($locked) {
+                    break;
+                }
+                usleep(100000);
+            } while (microtime(true) < $deadline);
+        }
+        try {
+            if ($locked && !$force) {
+                // Double-check: another request may have fetched while we waited.
+                $row = StateCache::load();
+                if ($this->cacheServesRead($row, time())) {
+                    return $this->stateResult($row, time());
+                }
+            } elseif (!$locked && !$mustFetch && $fh) {
+                // Someone else has been fetching for > 3 s: do not pile on, even for
+                // forced reads (pairing polls). Only the cycle/planner ($mustFetch) goes on.
+                return $this->stateResult(StateCache::load(), time());
+            }
+            $t = $this->makeTransport();
+            $map = $t->getAll();
+            $now = time();
+            if (is_array($map)) {
+                $source = $t->getLastSource();
+                StateCache::saveSuccess($map, $source, $now);
+                $saved = StateCache::load();
+                if ($saved === null) {
+                    // No DB layer (headless run): synthesize the row so the caller still sees a fresh success.
+                    $saved = array('FETCHED_UTC' => $now, 'ATTEMPT_UTC' => $now, 'LAST_OK' => 1,
+                        'SOURCE' => $source, 'DIRTY' => 0, 'PAYLOAD' => '{}');
+                }
+                return $this->stateResult($saved, $now, $map);
+            }
+            $err = $t->getLastError();
+            StateCache::saveFailure($now);
+            $res = $this->stateResult(StateCache::load(), $now);
+            $res['error'] = is_array($err) ? $err : array();
+            return $res;
+        } finally {
+            if ($fh) {
+                if ($locked) {
+                    flock($fh, LOCK_UN);
+                }
+                fclose($fh);
+            }
+        }
+    }
+
+    /** True when the cache row may answer a non-forced read without an ESP call. */
+    private function cacheServesRead($row, $now)
+    {
+        return $row !== null && empty($row['DIRTY'])
+            && StateCache::isFresh(isset($row['ATTEMPT_UTC']) ? $row['ATTEMPT_UTC'] : 0, $now, StateCache::FRESH_S);
+    }
+
+    /**
+     * Map for a decision/telemetry: the result of a FRESH fetch, or an EMPTY
+     * map when the fetch failed (never the stale cache).
+     */
+    private function freshMapOrEmpty($r)
+    {
+        return (isset($r['meta']['fetch_ok']) && $r['meta']['fetch_ok'] === true) ? $r['map'] : array();
+    }
+
+    /**
+     * Build an immutable snapshot for the pure planner from a FRESH fetch.
+     * The PLANNER ALWAYS DECIDES ON A FRESH FETCH, never on the stale cache:
+     * refreshState(true) bypasses the cache and, if the ESP does not answer,
+     * the snapshot is built from an empty map (http_available=false), exactly
+     * like the old per-entity code did.
+     */
     public function buildSnapshot()
     {
-        $t = $this->makeTransport();
-        $now = time();
+        $r = $this->refreshState(true, true);
+        return $this->buildSnapshotFromState($this->freshMapOrEmpty($r), time());
+    }
 
-        $tempUpperJson = $t->getState('sensor', 'Boiler Temp Upper');
-        $tempLowerJson = $t->getState('sensor', 'Boiler Temp Lower');
-        $heatJson      = $t->getState('binary_sensor', 'Boiler Heating');
-        $hdoJson       = $t->getState('binary_sensor', 'Boiler HDO');
-        $energyJson    = $t->getState('sensor', 'Boiler Energy');
-        $cooldownJson  = $t->getState('sensor', 'Boiler Cooldown Remaining');
-        $guardStateJson = $t->getState('text_sensor', 'Boiler Guard State');
+    /** Snapshot for the pure planner from an entity map (no ESP access). */
+    public function buildSnapshotFromState($map, $now)
+    {
+        $tempUpperJson = Transport::entity($map, 'sensor', 'Boiler Temp Upper');
+        $tempLowerJson = Transport::entity($map, 'sensor', 'Boiler Temp Lower');
+        $heatJson      = Transport::entity($map, 'binary_sensor', 'Boiler Heating');
+        $hdoJson       = Transport::entity($map, 'binary_sensor', 'Boiler HDO');
+        $energyJson    = Transport::entity($map, 'sensor', 'Boiler Energy');
+        $cooldownJson  = Transport::entity($map, 'sensor', 'Boiler Cooldown Remaining');
+        $guardStateJson = Transport::entity($map, 'text_sensor', 'Boiler Guard State');
 
         $httpAvailable = ($tempUpperJson !== null) || ($guardStateJson !== null);
 
@@ -440,6 +590,9 @@ EOD;
             'energy_total_kwh' => Transport::numericValue($energyJson),
             'cooldown_remaining_s' => (int) (Transport::numericValue($cooldownJson) !== null ? Transport::numericValue($cooldownJson) : 0),
             'in_cooldown'    => (Transport::numericValue($cooldownJson) !== null && Transport::numericValue($cooldownJson) > 0),
+            // Display only: cooldown_remaining_s above is 0 when unknown (planner
+            // contract, unchanged); the UI must show "no data", not "0 с".
+            'cooldown_known' => (Transport::numericValue($cooldownJson) !== null),
             'guard_state'    => Transport::stringValue($guardStateJson),
             'ble_state'      => Transport::stringValue($guardStateJson),
             'power_source'   => $power['source'],
@@ -480,7 +633,11 @@ EOD;
     public function cycleStep()
     {
         $this->getConfig();
-        $snapshot = $this->buildSnapshot();
+        // ONE forced GET /state per cycle (was ~27 per-entity GETs). A forced
+        // fetch also keeps the DB cache warm for admin()/usual()/AJAX reads.
+        $state = $this->refreshState(true, true);
+        $map = $this->freshMapOrEmpty($state);
+        $snapshot = $this->buildSnapshotFromState($map, time());
         $decision = Planner::decide($snapshot, $this->plannerConfig());
         $decision['dry_run'] = !empty($this->config['DRY_RUN']) || empty($this->config['AUTOMATION_ENABLED']);
 
@@ -501,7 +658,7 @@ EOD;
         Repository::saveDecision($decision);
 
         // Mirror key values into MajorDoMo properties for dashboards/linked props.
-        $this->publishProperties($snapshot, $decision);
+        $this->publishProperties($snapshot, $decision, $this->diagFromState($map));
 
         // Renew lease if automation is enabled and ESP reachable.
         if (!empty($this->config['AUTOMATION_ENABLED']) && !empty($snapshot['http_available'])) {
@@ -517,7 +674,7 @@ EOD;
 
         // Presence evaluation (optional).
         if (!empty($this->config['PRESENCE_ENABLED'])) {
-            $this->evaluatePresence($snapshot['now_utc']);
+            $this->evaluatePresence($snapshot['now_utc'], $this->bleFromState($map));
         }
 
         // Simple Devices ("Простые устройства") sync (optional).
@@ -592,6 +749,7 @@ EOD;
                 'detail' => ($res === null ? json_encode($t->getLastError()) : ''),
             ));
         }
+        StateCache::markDirty();
     }
 
     /**
@@ -599,7 +757,7 @@ EOD;
      * (BOILER_OBJECT). Read-only telemetry/diagnostics + planner reflections.
      * Control properties are NOT written here (they are user-driven inputs).
      */
-    private function publishProperties($s, $d)
+    private function publishProperties($s, $d, $diag)
     {
         if (!BoilerObject::available()) {
             return;
@@ -625,8 +783,7 @@ EOD;
         BoilerObject::set($o, 'decisionReason', $d['reason']);
         BoilerObject::set($o, 'decisionHuman',  $d['reason_human']);
 
-        // ESP diagnostics + guard + reported mode/target (one HTTP batch).
-        $diag = $this->readDiagnostics();
+        // ESP diagnostics + guard + reported mode/target (from the same GET /state).
         BoilerObject::set($o, 'espUptime',      $diag['UPTIME']);
         BoilerObject::set($o, 'espRssi',        $diag['RSSI']);
         BoilerObject::set($o, 'espFreeHeap',    $diag['FREE_HEAP']);
@@ -682,6 +839,7 @@ EOD;
                 $this->saveConfig();
                 break;
         }
+        StateCache::markDirty();
         Repository::saveCommand(array(
             'ts_utc' => time(), 'command_id' => 'objprop', 'kind' => $property,
             'payload' => (string) $value, 'status' => 'applied',
@@ -689,7 +847,7 @@ EOD;
         ));
     }
 
-    private function evaluatePresence($now)
+    private function evaluatePresence($now, $ble)
     {
         $o = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
 
@@ -697,7 +855,7 @@ EOD;
         // collected into <object>.presenceObservationsJson by the presence
         // collector (see collectPresenceObservations). Each entry:
         //   {"mac":"aa:..","seen_utc":..,"source":"ble|wifi"}
-        $obs = $this->collectPresenceObservations($o, $now);
+        $obs = $this->collectPresenceObservations($o, $now, $ble);
 
         $roster = json_decode($this->config['PRESENCE_ROSTER_JSON'], true);
         if (!is_array($roster)) {
@@ -764,12 +922,12 @@ EOD;
      * user cron/rule fills (router/arp table) at <object>.wifiObservationsJson.
      * Returns a list of array(mac, seen_utc, source).
      */
-    private function collectPresenceObservations($o, $now)
+    private function collectPresenceObservations($o, $now, $ble)
     {
         $obs = array();
 
-        // BLE from the ESP scanner (if enabled/flashed).
-        $ble = $this->bleScanDevices();
+        // BLE from the ESP scanner (if enabled/flashed): $ble comes from the
+        // same GET /state map as the rest of the cycle (no extra ESP call).
         if (!empty($ble['available']) && !empty($ble['list'])) {
             foreach ($ble['list'] as $d) {
                 if (!empty($d['MAC'])) {
@@ -818,55 +976,127 @@ EOD;
 
     function usual(&$out)
     {
+        // The widget NEVER contacts the ESP: it renders the DB snapshot cache
+        // (kept warm by the cycle worker) and ignores ajax/op request params.
         $this->getConfig();
-        $snapshot = $this->buildSnapshot();
+        $cached = $this->stateFromCache();
+        $snapshot = $this->displaySnapshot($cached, time());
         $decision = Planner::decide($snapshot, $this->plannerConfig());
         $this->flattenForTemplate($out, $snapshot, $decision, null);
+        $this->addDataMeta($out, $cached['meta']);
         $out['IS_ADMIN'] = 0;
+    }
+
+    /**
+     * Snapshot for DISPLAY from the cached map. Stale/never-fetched cache must
+     * not be shown as "ESP connected": http_available is forced to false then.
+     */
+    private function displaySnapshot($cached, $now)
+    {
+        $s = $this->buildSnapshotFromState($cached['map'], $now);
+        if (!empty($cached['meta']['stale'])) {
+            $s['http_available'] = false;
+        }
+        return $s;
+    }
+
+    /** DATA_* template vars describing the cache (age, stale badge, last fetch). */
+    private function addDataMeta(&$out, $meta)
+    {
+        $out['DATA_HAS']      = !empty($meta['has_data']) ? 1 : 0;
+        $out['DATA_AGE_S']    = ($meta['age_s'] === null) ? '' : (string) (int) $meta['age_s'];
+        $out['DATA_STALE']    = !empty($meta['stale']) ? 1 : 0;
+        $out['DATA_FETCH_OK'] = ($meta['fetch_ok'] === null) ? '' : ($meta['fetch_ok'] ? 1 : 0);
+    }
+
+    /** "55.5 °C"-style formatter; missing -> the "no data" text (never 0). */
+    private function fmtVal($v, $suffix = '')
+    {
+        if ($v === null || $v === '') {
+            return defined('LANG_DS_UNAVAILABLE') ? LANG_DS_UNAVAILABLE : 'no data';
+        }
+        return (is_numeric($v) ? rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.') : $v) . $suffix;
+    }
+
+    private function ynqVal($v)
+    {
+        if ($v === null) {
+            return defined('LANG_DS_UNKNOWN') ? LANG_DS_UNKNOWN : 'unknown';
+        }
+        return $v ? (defined('LANG_DS_YES') ? LANG_DS_YES : 'yes')
+                  : (defined('LANG_DS_NO') ? LANG_DS_NO : 'no');
+    }
+
+    /** ok | pin | no  (same rule as the Status tab badge). */
+    private function connState($httpAvailable, $boilerState)
+    {
+        if (!$httpAvailable) {
+            return 'no';
+        }
+        return ($boilerState === 'Require PIN') ? 'pin' : 'ok';
+    }
+
+    /**
+     * PLAIN-TEXT status strings shared by the HTML shell (escaped there) and
+     * the AJAX `status` op (NOT escaped: the client uses textContent).
+     */
+    private function statusStrings($s, $d)
+    {
+        $cdKnown = array_key_exists('cooldown_known', $s) ? !empty($s['cooldown_known']) : true;
+        return array(
+            'http_available'    => !empty($s['http_available']),
+            'temp_upper_f'      => $this->fmtVal($s['temp_upper'], ' °C'),
+            'temp_lower_f'      => $this->fmtVal($s['temp_lower'], ' °C'),
+            'heating_f'         => $this->ynqVal($s['heating']),
+            'hdo_f'             => $this->ynqVal($s['hdo']),
+            'energy_f'          => $this->fmtVal($s['energy_total_kwh'], ' кВт·год'),
+            'cooldown_f'        => $this->fmtVal($cdKnown ? $s['cooldown_remaining_s'] : null, ' с'),
+            'soc_f'             => $this->fmtVal($s['battery_soc'], ' %'),
+            'power_source'      => (string) $s['power_source'],
+            'power_human'       => (string) $s['power_human'],
+            'power_raw'         => ($s['power_raw'] === null ? '—' : (string) $s['power_raw']),
+            'tariff_active'     => !empty($s['tariff_active']),
+            'guard_state'       => ($s['guard_state'] === null ? '—' : (string) $s['guard_state']),
+            'decision_action'   => (string) $d['action'],
+            'decision_reason'   => (string) $d['reason'],
+            'decision_human'    => (string) $d['reason_human'],
+            'decision_target_f' => $this->fmtVal($d['target_c'], ' °C'),
+        );
     }
 
     /** Flatten nested snapshot/decision/config into flat [#VAR#] keys. */
     private function flattenForTemplate(&$out, $s, $d, $forecast)
     {
-        $fmt = function ($v, $suffix = '') {
-            if ($v === null || $v === '') {
-                return defined('LANG_DS_UNAVAILABLE') ? LANG_DS_UNAVAILABLE : 'no data';
-            }
-            return (is_numeric($v) ? rtrim(rtrim(number_format((float) $v, 1, '.', ''), '0'), '.') : $v) . $suffix;
-        };
-        $ynq = function ($v) {
-            if ($v === null) return defined('LANG_DS_UNKNOWN') ? LANG_DS_UNKNOWN : 'unknown';
-            return $v ? (defined('LANG_DS_YES') ? LANG_DS_YES : 'yes')
-                      : (defined('LANG_DS_NO') ? LANG_DS_NO : 'no');
-        };
+        $st = $this->statusStrings($s, $d);
 
-        $out['HTTP_AVAILABLE'] = !empty($s['http_available']) ? 1 : 0;
-        $out['TEMP_UPPER_F']   = $fmt($s['temp_upper'], ' °C');
-        $out['TEMP_LOWER_F']   = $fmt($s['temp_lower'], ' °C');
-        $out['HEATING_F']      = $ynq($s['heating']);
-        $out['HDO_F']          = $ynq($s['hdo']);
-        $out['ENERGY_F']       = $fmt($s['energy_total_kwh'], ' кВт·год');
-        $out['POWER_SOURCE']   = $s['power_source'];
-        $out['POWER_HUMAN']    = $s['power_human'];
-        $out['POWER_RAW']      = ($s['power_raw'] === null ? '—' : (string) $s['power_raw']);
-        $out['SOC_F']          = $fmt($s['battery_soc'], ' %');
-        $out['TARIFF_ACTIVE']  = !empty($s['tariff_active']) ? 1 : 0;
+        $out['HTTP_AVAILABLE'] = $st['http_available'] ? 1 : 0;
+        $out['TEMP_UPPER_F']   = SettingsSaver::esc($st['temp_upper_f']);
+        $out['TEMP_LOWER_F']   = SettingsSaver::esc($st['temp_lower_f']);
+        $out['HEATING_F']      = SettingsSaver::esc($st['heating_f']);
+        $out['HDO_F']          = SettingsSaver::esc($st['hdo_f']);
+        $out['ENERGY_F']       = SettingsSaver::esc($st['energy_f']);
+        // Externally-sourced strings (ESP text, MajorDoMo property values): escaped for the HTML shell.
+        $out['POWER_SOURCE']   = SettingsSaver::esc($st['power_source']);
+        $out['POWER_HUMAN']    = SettingsSaver::esc($st['power_human']);
+        $out['POWER_RAW']      = SettingsSaver::esc($st['power_raw']);
+        $out['SOC_F']          = SettingsSaver::esc($st['soc_f']);
+        $out['TARIFF_ACTIVE']  = $st['tariff_active'] ? 1 : 0;
         $out['TARIFF_METER_LOCAL'] = $s['tariff_meter_local'];
-        $out['GUARD_STATE']    = ($s['guard_state'] === null ? '—' : $s['guard_state']);
-        $out['COOLDOWN_F']     = $fmt($s['cooldown_remaining_s'], ' с');
-        $out['DECISION_ACTION'] = $d['action'];
-        $out['DECISION_REASON'] = $d['reason'];
-        $out['DECISION_HUMAN']  = $d['reason_human'];
-        $out['DECISION_TARGET_F'] = $fmt($d['target_c'], ' °C');
+        $out['GUARD_STATE']    = SettingsSaver::esc($st['guard_state']);
+        $out['COOLDOWN_F']     = SettingsSaver::esc($st['cooldown_f']);
+        $out['DECISION_ACTION'] = SettingsSaver::esc($st['decision_action']);
+        $out['DECISION_REASON'] = SettingsSaver::esc($st['decision_reason']);
+        $out['DECISION_HUMAN']  = SettingsSaver::esc($st['decision_human']);
+        $out['DECISION_TARGET_F'] = SettingsSaver::esc($st['decision_target_f']);
         $out['DECISION_ALLOWED'] = !empty($d['allowed']) ? 1 : 0;
 
         if (is_array($forecast)) {
             $out['FC_AVAILABLE']  = !empty($forecast['available']) ? 1 : 0;
-            $out['FC_TODAY_F']    = $fmt($forecast['today_remaining_kwh'], ' кВт·год');
-            $out['FC_TOMORROW_F'] = $fmt($forecast['tomorrow_kwh'], ' кВт·год');
-            $out['FC_PROVIDER']   = ($forecast['provider'] === null ? '—' : $forecast['provider']);
-            $out['FC_QUALITY']    = $forecast['quality'];
-            $out['FC_HUMAN']      = $forecast['human'];
+            $out['FC_TODAY_F']    = $this->fmtVal($forecast['today_remaining_kwh'], ' кВт·год');
+            $out['FC_TOMORROW_F'] = $this->fmtVal($forecast['tomorrow_kwh'], ' кВт·год');
+            $out['FC_PROVIDER']   = ($forecast['provider'] === null ? '—' : SettingsSaver::esc($forecast['provider']));
+            $out['FC_QUALITY']    = SettingsSaver::esc($forecast['quality']);
+            $out['FC_HUMAN']      = SettingsSaver::esc($forecast['human']);
         }
 
         // Flatten whole config as CFG_<KEY> for form fields.
@@ -889,6 +1119,13 @@ EOD;
         global $this_computer;
         $this->getConfig();
 
+        // AJAX JSON endpoints (pattern of solarPlanner/onCharger): admin() is
+        // only reached through the authenticated admin panel; usual() never
+        // dispatches ajax. Terminates the request.
+        if (AjaxApi::isAjaxRequest($_REQUEST)) {
+            $this->handleAjax();
+        }
+
         $op = isset($_REQUEST['op']) ? $_REQUEST['op'] : '';
         $rejectedInput = array();
 
@@ -900,9 +1137,11 @@ EOD;
             }
         }
 
+        // Legacy (no-JS) POST ops: kept as a fallback. They call the SAME op*
+        // methods as the AJAX endpoints; only the ops themselves may touch the ESP.
         switch ($op) {
             case 'save_settings':
-                $saved = $this->opSaveSettings();
+                $saved = $this->opSaveSettings($_REQUEST);
                 // Visible result for the user (flat keys for the parser).
                 $out['SAVE_RESULT'] = empty($saved['errors']) ? 'ok' : 'error';
                 $rows = array();
@@ -918,26 +1157,22 @@ EOD;
                 $rejectedInput = $saved['rejected'];
                 break;
             case 'boost':
-                $this->opBoost();
+                $this->opBoost($_REQUEST);
                 break;
             case 'cancel_boost':
-                $this->config['BOOST_UNTIL_UTC'] = 0;
-                $this->saveConfig();
+                $this->opCancelBoost();
                 break;
             case 'enable_automation':
-                $this->config['AUTOMATION_ENABLED'] = 1;
-                $this->saveConfig();
+                $this->opSetAutomation(true);
                 break;
             case 'disable_automation':
-                $this->config['AUTOMATION_ENABLED'] = 0;
-                $this->saveConfig();
+                $this->opSetAutomation(false);
                 break;
             case 'set_dry_run':
-                $this->config['DRY_RUN'] = isset($_REQUEST['value']) && $_REQUEST['value'] == '0' ? 0 : 1;
-                $this->saveConfig();
+                $this->opSetDryRun($_REQUEST);
                 break;
             case 'scan_network':
-                $scan = $this->opScanNetwork();
+                $scan = $this->opScanNetwork($_REQUEST);
                 // Flatten for the parser: a list of devices OR a need_base_ip error.
                 if (isset($scan['error'])) {
                     $out['SCAN_NEED_BASE_IP'] = ($scan['error'] === 'need_base_ip') ? 1 : 0;
@@ -946,7 +1181,7 @@ EOD;
                 }
                 break;
             case 'probe_host':
-                $probe = $this->opProbeHost();
+                $probe = $this->opProbeHost($_REQUEST);
                 // Flat keys (the parser cannot branch on nested PROBE_RESULT.*).
                 $out['PROBE_CMD'] = 1;
                 $out['PROBE_REACHABLE'] = !empty($probe['ok']) ? 1 : 0;
@@ -957,10 +1192,10 @@ EOD;
                 $out['PROPERTY_CANDIDATES'] = $this->discoverProperties();
                 break;
             case 'request_target':
-                $out['CMD_RESULT'] = $this->opRequestTarget();
+                $out['CMD_RESULT'] = $this->opRequestTarget($_REQUEST);
                 break;
             case 'request_mode':
-                $out['CMD_RESULT'] = $this->opRequestMode();
+                $out['CMD_RESULT'] = $this->opRequestMode($_REQUEST);
                 break;
             case 'release_ble':
                 $out['CMD_RESULT'] = $this->opButton('Boiler Release BLE');
@@ -969,7 +1204,7 @@ EOD;
                 $out['CMD_RESULT'] = $this->opButton('Boiler Reconnect BLE');
                 break;
             case 'send_pin':
-                $pinRes = $this->opSendPin();
+                $pinRes = $this->opSendPin($_REQUEST);
                 $out['CMD_RESULT'] = $pinRes;
                 // Flat keys for the parser (it cannot read nested CMD_RESULT.*).
                 $out['PIN_CMD'] = 1;
@@ -979,8 +1214,11 @@ EOD;
                 $out['PIN_SENT'] = (!empty($pinRes['ok']) && empty($pinRes['accepted'])) ? 1 : 0;
                 // bad_pin -> validator rejected the input.
                 $out['PIN_BAD'] = ($reason === 'bad_pin') ? 1 : 0;
-                // ESP unreachable / transport failure.
-                $out['PIN_ESP_DOWN'] = (empty($pinRes['ok']) && $reason !== 'bad_pin') ? 1 : 0;
+                // The ESP ANSWERED with an HTTP error (404/400...): a request problem, not "unreachable".
+                $out['PIN_HTTP_ERR'] = ($reason === 'http_error') ? 1 : 0;
+                $out['PIN_HTTP_CODE'] = isset($pinRes['http_code']) ? (int) $pinRes['http_code'] : 0;
+                // ESP unreachable / transport / auth failure.
+                $out['PIN_ESP_DOWN'] = (empty($pinRes['ok']) && $reason !== 'bad_pin' && $reason !== 'http_error') ? 1 : 0;
                 // Stale-PIN warning + post-submit trace snapshot (never PIN digits).
                 $out['PIN_STALE'] = !empty($pinRes['stale']) ? 1 : 0;
                 $traceTail = isset($pinRes['trace_tail']) && is_array($pinRes['trace_tail']) ? $pinRes['trace_tail'] : array();
@@ -991,7 +1229,7 @@ EOD;
                 $out['CMD_RESULT'] = $this->opButton('BLE Scan Clear');
                 break;
             case 'select_boiler':
-                $out['CMD_RESULT'] = $this->opSelectBoiler();
+                $out['CMD_RESULT'] = $this->opSelectBoiler($_REQUEST);
                 break;
             case 'lease_renew':
                 $out['CMD_RESULT'] = $this->opButton('Boiler Lease Renew');
@@ -1000,12 +1238,23 @@ EOD;
                 $out['PROVISION_RESULT'] = SimpleDevices::provision($this->simpleDevicesMap());
                 break;
         }
+        if (AjaxApi::classify($op) === 'mutating') {
+            // The ESP state may have changed: the next AJAX read must refetch.
+            StateCache::markDirty();
+        }
 
-        $snapshot = $this->buildSnapshot();
+        // ---- render: ZERO ESP calls (DB snapshot cache + DB/property reads only) ----
+        $now = time();
+        $tab = (isset($this->tab) && $this->tab !== '') ? (string) $this->tab : 'status';
+        $cached = $this->stateFromCache();
+        $map = $cached['map'];
+
+        $snapshot = $this->displaySnapshot($cached, $now);
         $decision = Planner::decide($snapshot, $this->plannerConfig());
-        $forecast = $this->forecastSnapshot($snapshot['now_utc']);
+        $forecast = ($tab === 'policy') ? $this->forecastSnapshot($now) : null;
 
         $this->flattenForTemplate($out, $snapshot, $decision, $forecast);
+        $this->addDataMeta($out, $cached['meta']);
         // Show rejected input back to the user instead of discarding it.
         foreach ($rejectedInput as $f => $raw) {
             $out['CFG_' . $f] = SettingsSaver::esc($raw);
@@ -1022,14 +1271,16 @@ EOD;
         $out['HOST_OK'] = !empty($hv['ok']) ? 1 : 0;
         $out['HOST_REASON'] = $hv['reason'];
 
-        // Recent decisions + commands for the log tab.
-        $out['LOG_DECISIONS'] = $this->recentDecisions();
-        $out['LOG_COMMANDS'] = $this->recentCommands();
+        // Recent decisions + commands: DB only, only on the log tab.
+        if ($tab === 'log') {
+            $out['LOG_DECISIONS'] = $this->recentDecisions();
+            $out['LOG_COMMANDS'] = $this->recentCommands();
+        }
         $out['PRESENT_PEOPLE'] = Repository::readProperty('EspBoiler.presentPeople');
 
-        // BLE scan results (list of discovered boilers to choose from).
+        // BLE scan results (list of discovered boilers to choose from), from the cache.
         // Use flat keys for the MajorDoMo parser (no dotted nesting in [#begin#]).
-        $ble = $this->bleScanDevices();
+        $ble = $this->bleFromState($map);
         $out['BLE_AVAILABLE']    = !empty($ble['available']) ? 1 : 0;
         $out['BLE_HAS_DEVICES']  = (!empty($ble['list'])) ? 1 : 0;
         // MAC/NAME come over the air: escape (MAC lands in a hidden value="...").
@@ -1043,7 +1294,7 @@ EOD;
         $out['SELECTED_BLE_MAC'] = SettingsSaver::esc(isset($this->config['BOILER_BLE_MAC']) ? $this->config['BOILER_BLE_MAC'] : '');
 
         // Full diagnostics: flatten every firmware entity into DG_<KEY> keys.
-        $diag = $this->readDiagnostics();
+        $diag = $this->diagFromState($map);
         foreach ($diag as $k => $v) {
             $out['DG_' . $k] = ($v === null || $v === '') ? '—' : SettingsSaver::esc($v);
         }
@@ -1056,36 +1307,54 @@ EOD;
         $dc = PairTrace::parseDisconnect(isset($diag['LAST_DISCONNECT']) ? $diag['LAST_DISCONNECT'] : null);
         $out['PAIR_HAS_DISC'] = empty($dc) ? 0 : 1;
 
-        // Property-binding dropdowns: build <select> option lists in PHP (the
-        // simple template parser can't do "selected if equals current" inside a
-        // [#begin#] loop). When the property list is empty (no DB/objects), the
-        // template falls back to a free-text input (HAS_PROPERTIES=0).
-        $props = $this->allProperties();
-        $out['HAS_PROPERTIES'] = (!empty($props)) ? 1 : 0;
-        $bindFields = array(
-            'SOC_PROPERTY', 'POWER_PROPERTY', 'FORECAST_TODAY_PROP',
-            'FORECAST_TOMORROW_PROP', 'FORECAST_UPDATED_PROP', 'FORECAST_PROVIDER_PROP',
-        );
-        foreach ($bindFields as $f) {
-            $cur = isset($this->config[$f]) ? (string) $this->config[$f] : '';
-            $out['OPTS_' . $f] = $this->propertyOptionsHtml($props, $cur);
+        // Property-binding dropdowns + timezone list: policy tab only (the
+        // property scan is the heaviest DB query of the page).
+        if ($tab === 'policy') {
+            // Build <select> option lists in PHP (the simple template parser can't
+            // do "selected if equals current" inside a [#begin#] loop). When the
+            // property list is empty (no DB/objects), the template falls back to a
+            // free-text input (HAS_PROPERTIES=0).
+            $props = $this->allProperties();
+            $out['HAS_PROPERTIES'] = (!empty($props)) ? 1 : 0;
+            $bindFields = array(
+                'SOC_PROPERTY', 'POWER_PROPERTY', 'FORECAST_TODAY_PROP',
+                'FORECAST_TOMORROW_PROP', 'FORECAST_UPDATED_PROP', 'FORECAST_PROVIDER_PROP',
+            );
+            foreach ($bindFields as $f) {
+                $cur = isset($this->config[$f]) ? (string) $this->config[$f] : '';
+                $out['OPTS_' . $f] = $this->propertyOptionsHtml($props, $cur);
+            }
+            $out['OPTS_TIMEZONE'] = $this->timezoneOptionsHtml(
+                isset($this->config['TIMEZONE']) ? (string) $this->config['TIMEZONE'] : ''
+            );
         }
 
-        // Timezone dropdown (always available from PHP's identifier list).
-        $out['OPTS_TIMEZONE'] = $this->timezoneOptionsHtml(
-            isset($this->config['TIMEZONE']) ? (string) $this->config['TIMEZONE'] : ''
-        );
+        // Client side (FEAT-003 JS): translated strings + config, safe inside <script>.
+        $out['JS_I18N'] = AjaxApi::jsonForScript(AjaxApi::jsStrings(function ($k) {
+            $c = 'LANG_DS_' . $k;
+            return defined($c) ? constant($c) : null;
+        }));
+        $out['JS_CONFIG'] = AjaxApi::jsonForScript(array(
+            'csrf'      => $this->csrfToken(),
+            'tab'       => $tab,
+            'ops'       => array('read' => AjaxApi::READ_OPS, 'mutating' => AjaxApi::MUTATING_OPS),
+            'intervals' => array('statusMs' => 10000, 'pairingMs' => 2000, 'idleMs' => 10000),
+            'version'   => self::MODULE_VERSION,
+        ));
+        $out['JS_VER'] = self::MODULE_VERSION;
     }
 
+    // ---- ESP entity map -> UI structures (no ESP access) --------------------
+
     /**
-     * Read the BLE scan results JSON from the ESP ("BLE Scan Results" text
-     * sensor, present when ble_scan.yaml / boiler-scan.yaml is flashed).
-     * Returns a list of array(mac, name, boiler(bool), rssi) sorted boilers-first.
+     * Parse the BLE scan JSON from the "BLE Scan Results" text sensor in the
+     * entity map (present when ble_scan.yaml / boiler-scan.yaml is flashed).
+     * Returns array(available, list of array(MAC, NAME, BOILER, RSSI)) sorted
+     * boilers-first, then by RSSI (strongest first).
      */
-    public function bleScanDevices()
+    public function bleFromState($map)
     {
-        $t = $this->makeTransport();
-        $json = $t->getState('text_sensor', 'BLE Scan Results');
+        $json = Transport::entity($map, 'text_sensor', 'BLE Scan Results');
         $raw = Transport::stringValue($json);
         $out = array('available' => ($json !== null), 'list' => array());
         if ($raw === null || $raw === '') {
@@ -1107,7 +1376,7 @@ EOD;
             return $br - $ar;
         });
         foreach ($decoded as $d) {
-            if (!isset($d['mac'])) {
+            if (!is_array($d) || !isset($d['mac'])) {
                 continue;
             }
             $out['list'][] = array(
@@ -1120,15 +1389,20 @@ EOD;
         return $out;
     }
 
-    /** Read all diagnostic / full-feature entities for the Diagnostics tab. */
-    public function readDiagnostics()
+    /** BLE scan devices (public API kept): cached unless stale. */
+    public function bleScanDevices()
     {
-        $t = $this->makeTransport();
-        $read = function ($domain, $name) use ($t) {
-            $j = $t->getState($domain, $name);
+        $r = $this->refreshState(false);
+        return $this->bleFromState($r['map']);
+    }
+
+    /** All diagnostic / full-feature entities for the Diagnostics tab, from the map. */
+    public function diagFromState($map)
+    {
+        $read = function ($domain, $name) use ($map) {
+            $j = Transport::entity($map, $domain, $name);
             if ($domain === 'sensor' || $domain === 'number') {
-                $v = Transport::numericValue($j);
-                return $v === null ? null : $v;
+                return Transport::numericValue($j);
             }
             return Transport::stringValue($j);
         };
@@ -1157,10 +1431,331 @@ EOD;
         );
     }
 
-    /** Choose a discovered BLE MAC as the boiler: store it in config. */
-    private function opSelectBoiler()
+    /** Diagnostics (public API kept): cached unless stale. */
+    public function readDiagnostics()
     {
-        $mac = isset($_REQUEST['mac']) ? trim($_REQUEST['mac']) : '';
+        $r = $this->refreshState(false);
+        return $this->diagFromState($r['map']);
+    }
+
+    // ---- AJAX JSON endpoints ------------------------------------------------
+
+    /** Print the JSON answer and terminate (solarPlanner/onCharger pattern). */
+    private function handleAjax()
+    {
+        $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
+        list($status, $payload) = $this->ajaxDispatch($_REQUEST, $method);
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        if (!headers_sent()) {
+            http_response_code($status);
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store');
+        }
+        echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    /**
+     * Testable AJAX core: NO output, NO exit.
+     * @return array(int httpStatus, array payload)
+     */
+    public function ajaxDispatch(array $req, $method)
+    {
+        $this->getConfig();
+        $op = (isset($req['op']) && is_string($req['op'])) ? $req['op'] : '';
+        // Authorization BEFORE any other work: a rejected op makes no ESP
+        // call and changes no config.
+        $auth = AjaxApi::authorize($op, $method, $this->checkCsrf($req));
+        if (!$auth['ok']) {
+            return array($auth['status'], array('ok' => false, 'op' => $op, 'error' => $auth['error']));
+        }
+        try {
+            if (AjaxApi::classify($op) === 'read') {
+                return $this->ajaxRead($op, $req);
+            }
+            return $this->ajaxMutate($op, $req);
+        } catch (\Throwable $e) {
+            return array(500, array('ok' => false, 'op' => $op, 'error' => 'server'));
+        }
+    }
+
+    /** Whitelist of error fields safe to send to the browser. */
+    private function safeErr($err)
+    {
+        $o = array();
+        if (is_array($err)) {
+            foreach (array('stage', 'reason', 'http_code') as $k) {
+                if (isset($err[$k])) {
+                    $o[$k] = $err[$k];
+                }
+            }
+        }
+        return $o;
+    }
+
+    private function ajaxRead($op, array $req)
+    {
+        $force = (isset($req['force']) && $req['force'] === '1');
+        switch ($op) {
+            case 'status':
+            case 'diag':
+            case 'pairing':
+                $r = $this->refreshState($force);
+                break;
+            case 'ble_scan':
+                $r = $this->refreshState(true); // button press: always a fresh scan list
+                break;
+            default: // log, policy: DB only, no ESP
+                $r = $this->stateFromCache();
+        }
+        $meta = $r['meta'];
+        if ($meta['fetch_ok'] === false) {
+            $meta['fetch_error'] = $this->safeErr(isset($r['error']) ? $r['error'] : array());
+        }
+        $map = $r['map'];
+        switch ($op) {
+            case 'status':
+                $data = $this->statusData($map, $meta);
+                break;
+            case 'diag':
+                $data = array('dg' => $this->diagFromState($map), 'pair' => $this->pairData($map));
+                break;
+            case 'pairing':
+                $data = $this->pairData($map);
+                break;
+            case 'ble_scan':
+                $ble = $this->bleFromState($map);
+                $list = array();
+                foreach ($ble['list'] as $row) {
+                    $list[] = array('mac' => (string) $row['MAC'], 'name' => (string) $row['NAME'],
+                        'boiler' => !empty($row['BOILER']), 'rssi' => ($row['RSSI'] === '' ? null : (int) $row['RSSI']));
+                }
+                $data = array('available' => !empty($ble['available']), 'list' => $list,
+                    'selected_mac' => isset($this->config['BOILER_BLE_MAC']) ? (string) $this->config['BOILER_BLE_MAC'] : '');
+                break;
+            case 'log':
+                $data = array('decisions' => array(), 'commands' => array());
+                foreach ($this->recentDecisions() as $x) {
+                    $data['decisions'][] = array('time' => $x['TIME'], 'action' => $x['ACTION'],
+                        'reason' => $x['REASON'], 'allowed' => !empty($x['ALLOWED']));
+                }
+                foreach ($this->recentCommands() as $x) {
+                    $data['commands'][] = array('time' => $x['TIME'], 'kind' => $x['KIND'],
+                        'payload' => $x['PAYLOAD'], 'status' => $x['STATUS']);
+                }
+                break;
+            default: // policy
+                $fc = $this->forecastSnapshot(time());
+                $data = array('forecast' => $fc,
+                    'today_f' => $this->fmtVal(isset($fc['today_remaining_kwh']) ? $fc['today_remaining_kwh'] : null, ' кВт·год'),
+                    'tomorrow_f' => $this->fmtVal(isset($fc['tomorrow_kwh']) ? $fc['tomorrow_kwh'] : null, ' кВт·год'));
+        }
+        return array(200, array('ok' => true, 'op' => $op, 'meta' => $meta, 'data' => $data));
+    }
+
+    private function statusData($map, $meta)
+    {
+        $s = $this->buildSnapshotFromState($map, time());
+        if (!empty($meta['stale'])) {
+            $s['http_available'] = false;
+        }
+        $d = Planner::decide($s, $this->plannerConfig());
+        $boilerState = Transport::stringValue(Transport::entity($map, 'text_sensor', 'Boiler State'));
+        $data = $this->statusStrings($s, $d);
+        $data['boiler_state'] = $boilerState;
+        $data['conn'] = $this->connState(!empty($s['http_available']), $boilerState);
+        return $data;
+    }
+
+    private function pairData($map)
+    {
+        $d = $this->diagFromState($map);
+        $cc = $d['CONNECT_COUNT'];
+        $trace = $d['PAIR_TRACE'];
+        $disc = PairTrace::parseDisconnect($d['LAST_DISCONNECT']);
+        return array(
+            'boiler_state'       => $d['BOILER_STATE'],
+            'require_pin'        => ($d['BOILER_STATE'] === 'Require PIN'),
+            'connect_count'      => is_numeric($cc) ? (string) (int) $cc : '',
+            'pair_attempts'      => $d['PAIR_ATTEMPTS'],
+            'trace_raw'          => $trace,
+            'trace_tail'         => PairTrace::lastEvents($trace, 3),
+            'last_disconnect_raw' => $d['LAST_DISCONNECT'],
+            'last_disconnect'    => empty($disc) ? new \stdClass() : $disc,
+            'has_trace'          => ($trace !== null && $trace !== '' && $trace !== '-'),
+        );
+    }
+
+    private function banner($kind, $key)
+    {
+        return array('kind' => $kind, 'key' => $key);
+    }
+
+    /** Failure banner for an ESP write that returned null. */
+    private function espFailBanner($err, $httpKey = 'FETCH_ERROR', $downKey = 'FETCH_ERROR')
+    {
+        $stage = (is_array($err) && isset($err['stage'])) ? $err['stage'] : '';
+        return $this->banner('danger', $stage === 'http' ? $httpKey : $downKey);
+    }
+
+    private function ajaxMutate($op, array $req)
+    {
+        $result = array();
+        $banner = null;
+        switch ($op) {
+            case 'save_settings':
+                $saved = $this->opSaveSettings($req);
+                $errs = array();
+                foreach ($saved['errors'] as $field => $code) {
+                    $errs[] = array('field' => (string) $field, 'reason' => ($code === 'json' ? 'json' : 'num'));
+                }
+                // NEVER echo the config (ESP_PASS): only field errors + the rejected raw input.
+                $result = array('errors' => $errs, 'rejected' => $saved['rejected']);
+                $banner = empty($errs) ? $this->banner('success', 'SAVE_OK') : $this->banner('danger', 'SAVE_FAIL');
+                break;
+            case 'send_pin':
+                $p = $this->opSendPin($req);
+                if (isset($p['reason']) && $p['reason'] === 'bad_pin') {
+                    return $this->badInput($op, 'bad_pin', $this->banner('warning', 'SETUP_PIN_BAD'));
+                }
+                $result = array(
+                    'ok'              => !empty($p['ok']),
+                    'accepted'        => !empty($p['accepted']),
+                    'state'           => $p['state'],
+                    'reason'          => $p['reason'],
+                    'stale'           => !empty($p['stale']),
+                    'trace_tail'      => $p['trace_tail'],
+                    'last_disconnect' => $p['last_disconnect'],
+                );
+                if (isset($p['http_code'])) {
+                    $result['http_code'] = $p['http_code'];
+                }
+                if (!empty($p['accepted'])) {
+                    $banner = $this->banner('success', 'SETUP_PIN_ACCEPTED');
+                } elseif (!empty($p['ok'])) {
+                    $banner = $this->banner('warning', 'SETUP_PIN_SENT');
+                } elseif ($p['reason'] === 'http_error') {
+                    $banner = $this->banner('danger', 'SETUP_PIN_HTTP_ERR');
+                } else {
+                    $banner = $this->banner('danger', 'SETUP_PIN_ESP_DOWN');
+                }
+                break;
+            case 'request_target':
+                $r = $this->opRequestTarget($req);
+                if (isset($r['reason'])) {
+                    return $this->badInput($op, $r['reason'], $this->banner('danger', 'INVALID_VALUE'));
+                }
+                $result = array('ok' => !empty($r['ok']), 'readback' => $r['readback'], 'error' => $this->safeErr($r['error']));
+                $banner = !empty($r['ok']) ? $this->banner('success', 'SAVE_OK') : $this->espFailBanner($r['error']);
+                break;
+            case 'request_mode':
+                $r = $this->opRequestMode($req);
+                if (isset($r['reason'])) {
+                    return $this->badInput($op, $r['reason'], $this->banner('danger', 'INVALID_VALUE'));
+                }
+                $result = array('ok' => !empty($r['ok']), 'readback' => $r['readback'], 'error' => $this->safeErr($r['error']));
+                $banner = !empty($r['ok']) ? $this->banner('success', 'SAVE_OK') : $this->espFailBanner($r['error']);
+                break;
+            case 'boost':
+                $result = $this->opBoost($req);
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'cancel_boost':
+                $this->opCancelBoost();
+                $result = array('boost_until_utc' => 0);
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'enable_automation':
+            case 'disable_automation':
+                $this->opSetAutomation($op === 'enable_automation');
+                $result = array('automation_enabled' => !empty($this->config['AUTOMATION_ENABLED']));
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'set_dry_run':
+                $this->opSetDryRun($req);
+                $result = array('dry_run' => !empty($this->config['DRY_RUN']));
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'release_ble':
+            case 'reconnect_ble':
+            case 'lease_renew':
+            case 'ble_scan_clear':
+                $names = array('release_ble' => 'Boiler Release BLE', 'reconnect_ble' => 'Boiler Reconnect BLE',
+                    'lease_renew' => 'Boiler Lease Renew', 'ble_scan_clear' => 'BLE Scan Clear');
+                $r = $this->opButton($names[$op]);
+                $result = array('ok' => !empty($r['ok']), 'error' => $this->safeErr($r['error']));
+                $banner = !empty($r['ok']) ? $this->banner('success', 'SAVE_OK') : $this->espFailBanner($r['error']);
+                break;
+            case 'select_boiler':
+                $r = $this->opSelectBoiler($req);
+                if (empty($r['ok'])) {
+                    return $this->badInput($op, isset($r['reason']) ? $r['reason'] : 'bad_mac', $this->banner('danger', 'INVALID_VALUE'));
+                }
+                $result = array('ok' => true, 'mac' => $r['mac']);
+                $banner = $this->banner('success', 'SAVE_OK');
+                break;
+            case 'probe_host':
+                $r = $this->opProbeHost($req);
+                $result = array(
+                    'reachable' => !empty($r['ok']),
+                    'is_boiler' => !empty($r['is_boiler']),
+                    'host'      => isset($r['host']) ? (string) $r['host'] : '',
+                    'detail'    => $this->detailString(isset($r['detail']) ? $r['detail'] : ''),
+                );
+                if ($result['is_boiler']) {
+                    $banner = $this->banner('success', 'PROBE_BOILER');
+                } elseif ($result['reachable']) {
+                    $banner = $this->banner('info', 'PROBE_REACHABLE');
+                } else {
+                    $banner = $this->banner('warning', 'PROBE_UNREACHABLE');
+                }
+                break;
+            case 'scan_network':
+                $r = $this->opScanNetwork($req);
+                if (isset($r['error'])) {
+                    return $this->badInput($op, (string) $r['error'], $this->banner('warning', 'SCAN_NEED_BASE_IP'));
+                }
+                $devices = array();
+                foreach ($r as $x) {
+                    $devices[] = array(
+                        'host'      => isset($x['host']) ? (string) $x['host'] : '',
+                        'is_boiler' => !empty($x['is_boiler']),
+                        'detail'    => $this->detailString(isset($x['detail']) ? $x['detail'] : ''),
+                    );
+                }
+                $result = array('devices' => $devices);
+                $banner = $this->banner('info', 'SCAN_FOUND');
+                break;
+            case 'provision_simple_devices':
+                $result = array('report' => SimpleDevices::provision($this->simpleDevicesMap()));
+                $banner = $this->banner('success', 'SD_PROVISIONED');
+                break;
+        }
+        // Whatever the op did, the ESP state may have changed: next read refetches.
+        StateCache::markDirty();
+        $c = $this->stateFromCache();
+        return array(200, array('ok' => true, 'op' => $op, 'meta' => $c['meta'], 'result' => $result, 'banner' => $banner));
+    }
+
+    private function badInput($op, $reason, $banner)
+    {
+        return array(400, array('ok' => false, 'op' => $op, 'error' => 'bad_input', 'reason' => $reason, 'banner' => $banner));
+    }
+
+    private function detailString($d)
+    {
+        if (is_array($d)) {
+            return (isset($d['reason']) ? (string) $d['reason'] : '');
+        }
+        return (string) $d;
+    }
+
+    /** Choose a discovered BLE MAC as the boiler: store it in config. */
+    private function opSelectBoiler(array $req)
+    {
+        $mac = isset($req['mac']) && is_string($req['mac']) ? trim($req['mac']) : '';
         if (!preg_match('/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/', $mac)) {
             return array('ok' => false, 'reason' => 'bad_mac');
         }
@@ -1224,23 +1819,25 @@ EOD;
     }
 
     // ---- admin operations ---------------------------------------------------
+    // Shared by the legacy POST switch in admin() and the AJAX endpoints. Every
+    // op takes its input as an explicit $req array (never reads $_REQUEST).
 
     /**
      * Save a settings form. The logic lives in SettingsSaver (pure, unit-tested).
      * Returns array(errors => field=>code, rejected => field=>raw input) so the
      * page can show a visible result and keep the user's rejected input.
      */
-    private function opSaveSettings()
+    private function opSaveSettings(array $req)
     {
-        $res = SettingsSaver::apply($this->config, $_REQUEST);
+        $res = SettingsSaver::apply($this->config, $req);
         $this->config = $res['config'];
         $this->saveConfig();
         return array('errors' => $res['errors'], 'rejected' => $res['rejected']);
     }
 
-    private function opBoost()
+    private function opBoost(array $req)
     {
-        $ttl = isset($_REQUEST['ttl']) ? (int) $_REQUEST['ttl'] : (int) $this->config['BOOST_TTL_S'];
+        $ttl = isset($req['ttl']) ? (int) $req['ttl'] : (int) $this->config['BOOST_TTL_S'];
         if ($ttl < 60) {
             $ttl = 60;
         }
@@ -1249,14 +1846,33 @@ EOD;
         }
         $this->config['BOOST_UNTIL_UTC'] = time() + $ttl;
         // This boost may run on battery power if the user ticked the box.
-        $this->config['BOOST_ALLOW_BATTERY'] = (isset($_REQUEST['allow_battery']) && $_REQUEST['allow_battery']) ? 1 : 0;
+        $this->config['BOOST_ALLOW_BATTERY'] = (isset($req['allow_battery']) && $req['allow_battery']) ? 1 : 0;
+        $this->saveConfig();
+        return array('boost_until_utc' => (int) $this->config['BOOST_UNTIL_UTC'],
+            'allow_battery' => !empty($this->config['BOOST_ALLOW_BATTERY']));
+    }
+
+    private function opCancelBoost()
+    {
+        $this->config['BOOST_UNTIL_UTC'] = 0;
         $this->saveConfig();
     }
 
-    private function opScanNetwork()
+    private function opSetAutomation($on)
     {
-        global $this_computer;
-        $base = isset($_REQUEST['base_ip']) ? trim($_REQUEST['base_ip']) : '';
+        $this->config['AUTOMATION_ENABLED'] = $on ? 1 : 0;
+        $this->saveConfig();
+    }
+
+    private function opSetDryRun(array $req)
+    {
+        $this->config['DRY_RUN'] = isset($req['value']) && $req['value'] == '0' ? 0 : 1;
+        $this->saveConfig();
+    }
+
+    private function opScanNetwork(array $req)
+    {
+        $base = isset($req['base_ip']) && is_string($req['base_ip']) ? trim($req['base_ip']) : '';
         if ($base === '') {
             // Try to derive from server's own LAN IP.
             $base = isset($_SERVER['SERVER_ADDR']) ? $_SERVER['SERVER_ADDR'] : '';
@@ -1264,7 +1880,7 @@ EOD;
         if ($base === '' || !filter_var($base, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             return array('error' => 'need_base_ip');
         }
-        $max = isset($_REQUEST['max_hosts']) ? (int) $_REQUEST['max_hosts'] : 64;
+        $max = isset($req['max_hosts']) ? (int) $req['max_hosts'] : 64;
         return NetworkScanner::sweep(
             $base, (int) $this->config['ESP_PORT'],
             $this->config['ESP_USER'], $this->config['ESP_PASS'],
@@ -1272,9 +1888,9 @@ EOD;
         );
     }
 
-    private function opProbeHost()
+    private function opProbeHost(array $req)
     {
-        $host = isset($_REQUEST['host']) ? trim($_REQUEST['host']) : '';
+        $host = isset($req['host']) && is_string($req['host']) ? trim($req['host']) : '';
         return NetworkScanner::probe(
             $host, (int) $this->config['ESP_PORT'],
             $this->config['ESP_USER'], $this->config['ESP_PASS'],
@@ -1282,37 +1898,39 @@ EOD;
         );
     }
 
-    private function opRequestTarget()
+    private function opRequestTarget(array $req)
     {
-        $v = isset($_REQUEST['value']) ? (int) $_REQUEST['value'] : 0;
+        $v = isset($req['value']) ? (int) $req['value'] : 0;
         if ($v < 40 || $v > 80) {
             return array('ok' => false, 'reason' => 'out_of_range');
         }
         $t = $this->makeTransport();
         $res = $t->postSet('number', 'Boiler Requested Target', $v);
+        $err = $t->getLastError();
         // Readback.
         $rb = $t->getState('number', 'Boiler Requested Target');
         return array('ok' => ($res !== null), 'readback' => Transport::numericValue($rb),
-            'error' => $t->getLastError());
+            'error' => $err);
     }
 
-    private function opRequestMode()
+    private function opRequestMode(array $req)
     {
-        $m = isset($_REQUEST['value']) ? trim($_REQUEST['value']) : '';
+        $m = isset($req['value']) && is_string($req['value']) ? trim($req['value']) : '';
         $allowed = array('ANTIFREEZE', 'SMART', 'PROG', 'MANUAL');
         if (!in_array($m, $allowed, true)) {
             return array('ok' => false, 'reason' => 'bad_mode');
         }
         $t = $this->makeTransport();
         $res = $t->postSet('select', 'Boiler Requested Mode', $m);
+        $err = $t->getLastError();
         $rb = $t->getState('select', 'Boiler Requested Mode');
         return array('ok' => ($res !== null), 'readback' => Transport::stringValue($rb),
-            'error' => $t->getLastError());
+            'error' => $err);
     }
 
-    private function opSendPin()
+    private function opSendPin(array $req)
     {
-        $v = PolicyEngine::validatePin(isset($_REQUEST['pin']) ? $_REQUEST['pin'] : '');
+        $v = PolicyEngine::validatePin(isset($req['pin']) ? $req['pin'] : '');
         if (empty($v['ok'])) {
             return array('ok' => false, 'reason' => 'bad_pin');
         }
@@ -1323,12 +1941,14 @@ EOD;
         // moved on, the boiler rebuilt the BLE link and issued a NEW pairing
         // PIN on its display — the PIN just typed is for the previous session.
         // We still send it (the user may be looking at the new PIN already).
-        $renderedCc = isset($_REQUEST['pin_render_cc']) ? $_REQUEST['pin_render_cc'] : null;
+        $renderedCc = isset($req['pin_render_cc']) ? $req['pin_render_cc'] : null;
         $currentCcRaw = Transport::numericValue($t->getState('sensor', 'Boiler Connect Count'));
         $stale = PairTrace::isStale($renderedCc, $currentCcRaw);
 
-        // PIN is sensitive: send the numeric value once; NEVER store the digits.
+        // PIN is sensitive: send the numeric value ONCE (single fast POST, no
+        // retry: the boiler's PIN window is only ~29 s); NEVER store the digits.
         $res = $t->postSet('number', 'Boiler Pairing PIN', $v['value']);
+        $postErr = $t->getLastError();
 
         // Bounded non-blocking readback of Boiler State: the boiler flips to
         // "Connected" once it accepts the PIN. Poll a couple of times with a
@@ -1354,6 +1974,22 @@ EOD;
         $lastDisconnectRaw = Transport::stringValue($t->getState('text_sensor', 'Boiler Last Disconnect'));
         $traceTail = PairTrace::lastEvents($traceRaw, 3);
 
+        // Why did the POST fail? The ESP ANSWERED with an HTTP error (e.g. 404/400)
+        // = a request problem, which is different from "ESP unreachable".
+        $reason = 'sent';
+        $httpCode = null;
+        if ($res === null) {
+            $stage = isset($postErr['stage']) ? $postErr['stage'] : '';
+            if ($stage === 'http') {
+                $reason = 'http_error';
+            } elseif ($stage === 'auth') {
+                $reason = 'auth';
+            } else {
+                $reason = 'transport';
+            }
+            $httpCode = isset($postErr['http_code']) ? (int) $postErr['http_code'] : null;
+        }
+
         Repository::saveCommand(array(
             'ts_utc'     => time(),
             'command_id' => 'pair',
@@ -1361,20 +1997,25 @@ EOD;
             'payload'    => '****',
             'status'     => $accepted ? 'accepted' : ($res !== null ? 'sent' : 'failed'),
             'detail'     => ($state === null ? '' : $state) . ($stale ? ' [stale_pin]' : '')
+                . ($res === null ? (' ' . $reason . ($httpCode !== null ? ('_' . $httpCode) : '')) : '')
                 . (empty($traceTail) ? '' : (' trace:' . implode(',', $traceTail)))
                 . ($lastDisconnectRaw ? (' disc:' . $lastDisconnectRaw) : ''),
         ));
 
-        return array(
+        $out = array(
             'ok'               => ($res !== null),
             'accepted'         => $accepted,
             'state'            => $state,
-            'reason'           => ($res !== null ? 'sent' : 'transport'),
-            'error'            => $t->getLastError(),
+            'reason'           => $reason,
+            'error'            => $postErr,
             'stale'            => $stale,
             'trace_tail'       => $traceTail,
             'last_disconnect'  => $lastDisconnectRaw,
         );
+        if ($httpCode !== null) {
+            $out['http_code'] = $httpCode;
+        }
+        return $out;
     }
 
     private function opButton($name)
@@ -1587,9 +2228,12 @@ EOD;
         return $GLOBALS['drazice_csrf_fallback'];
     }
 
-    private function checkCsrf()
+    private function checkCsrf($req = null)
     {
-        $sent = isset($_REQUEST['csrf']) ? (string) $_REQUEST['csrf'] : '';
+        if ($req === null) {
+            $req = $_REQUEST;
+        }
+        $sent = (isset($req['csrf']) && is_string($req['csrf'])) ? $req['csrf'] : '';
         $token = $this->csrfToken();
         if ($sent === '' || $token === '') {
             return false;

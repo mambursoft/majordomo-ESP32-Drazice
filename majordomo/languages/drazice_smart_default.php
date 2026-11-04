@@ -221,6 +221,10 @@ $dictionary = array(
     // Save-settings result banner
     'DS_SAVE_OK'         => 'Saved.',
     'DS_SAVE_FAIL'       => 'Not saved (the previous value was kept), please fix these fields:',
+    'DS_INVALID_VALUE'    => 'Invalid value: nothing was sent to the boiler. Check the entered value.',
+    'DS_BLE_MAC'          => 'MAC',
+    'DS_BLE_RSSI'         => 'RSSI',
+    'DS_UNIT_DBM'         => 'dBm',
     'DS_SAVE_ERR_JSON'   => 'must be a valid JSON object, e.g. {"key":"value"}',
     'DS_SAVE_ERR_NUM'    => 'must be a number',
 
@@ -242,6 +246,7 @@ $dictionary = array(
     'DS_SETUP_PIN_ACCEPTED'   => 'PIN accepted - boiler connected.',
     'DS_SETUP_PIN_SENT'       => 'PIN sent. The boiler has not confirmed the connection yet - wait a few seconds and refresh.',
     'DS_SETUP_PIN_ESP_DOWN'   => 'Could not send the PIN: the ESP32 is unreachable. Check the connection on this tab.',
+    'DS_SETUP_PIN_HTTP_ERR'   => 'The ESP32 is reachable but rejected the request (HTTP error, e.g. 404/400). The PIN was not delivered: this is a request error, not a network outage.',
     'DS_SETUP_PIN_BAD'        => 'Invalid PIN format: 1-4 digits required.',
 
     // Setup: probe result
@@ -275,6 +280,18 @@ $dictionary = array(
     'DS_PAIR_STALE_WARN' => 'The boiler issued a new PIN: the link was rebuilt while you were typing. The PIN you entered is stale - enter the one on the display now.',
     'DS_PAIR_AFTER_SUBMIT' => 'Latest events after submit',
     'DS_PAIR_LEGEND' => 'CONN - BLE connected; AUTH_TX - authorization request; REQ_PIN - boiler asks for a PIN; PIN_RX/PIN_Q/PIN_TX - PIN received/queued/written to the boiler; RES=1 - PIN accepted; DISC(r=code,state) - disconnect (NP = was waiting for PIN).',
+    // --- AJAX tabs (1.8.0) ---
+    'DS_LOADING'            => 'Loading…',
+    'DS_DATA_UPDATED'       => 'updated',
+    'DS_DATA_AGO'           => 's ago',
+    'DS_DATA_STALE'         => 'data is stale',
+    'DS_DATA_NONE'          => 'no data yet - waiting for the ESP32 to answer',
+    'DS_DATA_LAST_FAIL'     => 'the last attempt to fetch data failed',
+    'DS_REFRESH'            => 'Refresh',
+    'DS_FETCH_ERROR'        => 'Could not get data from the ESP32',
+    'DS_AJAX_NETWORK_ERROR' => 'Network or server error. The action was NOT confirmed - check the state and retry.',
+    'DS_SAVING'             => 'Saving…',
+    'DS_NOSCRIPT_NOTE'      => 'Without JavaScript the page works in classic mode: the last stored data is shown and forms submit with a page reload.',
 );
 
 foreach ($dictionary as $k => $v) {

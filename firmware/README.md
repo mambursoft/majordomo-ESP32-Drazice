@@ -52,6 +52,24 @@ firmware-api-manifest.json     стабільний контракт для мо
 `POST /{domain}/{name}/set?value=...`, `POST /button/{name}/press`. Повний опис
 полів і entity — `firmware-api-manifest.json`.
 
+Додатково `GET /state` — один запит замість ~28 окремих `GET /{domain}/{name}`.
+Повертає стан усіх не-internal entity: домен → display-name → `{value,state}`
+(та сама семантика, що й у per-entity GET; відсутнє = `null`, не 0):
+
+```json
+{"sensor":{"Boiler Temp Upper":{"value":55.5,"state":"55.5"}},
+ "binary_sensor":{"Boiler Heating":{"value":true,"state":"ON"}},
+ "text_sensor":{"Boiler State":{"value":"SMART","state":"SMART"}},
+ "number":{"Boiler Requested Target":{"value":null,"state":"NA"}},
+ "select":{"Boiler Requested Mode":{"value":"SMART","state":"SMART"}}}
+```
+
+Відповідь стрімиться: HTTP/1.0 без `Content-Length` (кінець тіла — закриття
+з'єднання), JSON пишеться через фіксований стековий буфер 384 B
+(`components/rest_api/json_stream.h`) — без ArduinoJson і без heap-рядка
+(вільного heap мало). Per-entity endpoints не змінені. Увага: у відповіді є
+write-only `Boiler Pairing PIN` — його `value` слід ігнорувати.
+
 ## Збірка (коротко)
 
 ```powershell

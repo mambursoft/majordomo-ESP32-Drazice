@@ -144,3 +144,13 @@ foreach (array('status', 'setup', 'control', 'policy', 'log', 'diag', 'advanced'
     echo "admin() tab=$tab: OK (" . count($out) . " template vars)\n";
 }
 echo "OK: no fatal (admin tabs)\n";
+
+// Empty state cache (this harness's SQLSelectOne returns array()): usual() and
+// the AJAX read ops must degrade to "no data" without a fatal. No ESP is reachable here.
+$_REQUEST = array();
+$out = array();
+$m->usual($out);
+echo "usual(): OK (DATA_HAS=" . $out['DATA_HAS'] . ", HTTP_AVAILABLE=" . $out['HTTP_AVAILABLE'] . ")\n";
+list($st, $pl) = $m->ajaxDispatch(array('ajax' => '1', 'op' => 'status'), 'GET');
+echo "ajax status: HTTP $st ok=" . var_export($pl['ok'], true) . " has_data=" . var_export($pl['meta']['has_data'], true) . "\n";
+echo "OK: no fatal (usual + ajax)\n";

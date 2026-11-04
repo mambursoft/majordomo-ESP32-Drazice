@@ -54,4 +54,12 @@ drazice_people: BLE_MAC varchar(32) NOT NULL DEFAULT ''
 drazice_people: WIFI_MAC varchar(32) NOT NULL DEFAULT ''
 drazice_people: BEACON_UUID varchar(48) NOT NULL DEFAULT ''
 drazice_people: CREATED datetime
+
+drazice_state_cache: ID int(10) unsigned NOT NULL auto_increment
+drazice_state_cache: FETCHED_UTC int(11) NOT NULL DEFAULT '0'
+drazice_state_cache: ATTEMPT_UTC int(11) NOT NULL DEFAULT '0'
+drazice_state_cache: LAST_OK tinyint(1) NOT NULL DEFAULT '0'
+drazice_state_cache: SOURCE varchar(8) NOT NULL DEFAULT ''
+drazice_state_cache: DIRTY tinyint(1) NOT NULL DEFAULT '0'
+drazice_state_cache: PAYLOAD text
 EOD;

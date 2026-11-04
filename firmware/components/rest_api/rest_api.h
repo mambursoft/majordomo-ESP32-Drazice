@@ -10,6 +10,9 @@
 //                                         text_sensor|number|select
 //   POST /{domain}/{name}/set?value={v}   number|select (обидва через value=)
 //   POST /button/{name}/press             натиснути button
+//   GET  /state                           усі не-internal sensor|binary_sensor|
+//                                         text_sensor|number|select одним JSON
+//                                         (потоково, ключі: domain -> display name)
 //   Basic auth (web_username/web_password); невірно/немає -> 401.
 
 #include "esphome/core/component.h"
@@ -59,6 +62,9 @@ class RestApiComponent : public Component {
   void serve_text_sensor_(WiFiClient &client, const char *name);
   void serve_number_(WiFiClient &client, const char *name);
   void serve_select_(WiFiClient &client, const char *name);
+  // Пакетний GET /state: стан усіх entity одним потоковим JSON (стековий буфер
+  // 384 B, без heap-рядка). Заміняє ~28 окремих GET.
+  void serve_state_(WiFiClient &client);
 
   // POST-обробники.
   void apply_number_(WiFiClient &client, const char *name, const char *query);

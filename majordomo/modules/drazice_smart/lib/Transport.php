@@ -35,6 +35,53 @@ class Transport
     private $useDigest;
     /** @var array */
     private $lastError;
+    /** @var string 'state' | 'legacy' | '' - where the last getAll() data came from */
+    private $lastSource = '';
+
+    /** Max time (s) for the batch GET /state (streamed body, bigger than a single entity). */
+    const STATE_MAX_TIME = 8;
+
+    /**
+     * Write-only / sensitive entities that must never enter the cache or any
+     * JSON sent to the browser: domain => list of display names.
+     */
+    const SENSITIVE = array('number' => array('Boiler Pairing PIN'));
+
+    /** Domains carried by GET /state (order as emitted by the firmware). */
+    const STATE_DOMAINS = array('sensor', 'binary_sensor', 'text_sensor', 'number', 'select');
+
+    /**
+     * Entities the module reads (buildSnapshot + readDiagnostics + BLE scan):
+     * the per-entity GET fallback for firmware without GET /state. [domain, name].
+     */
+    const LEGACY_ENTITIES = array(
+        array('sensor', 'Boiler Temp Upper'),
+        array('sensor', 'Boiler Temp Lower'),
+        array('binary_sensor', 'Boiler Heating'),
+        array('binary_sensor', 'Boiler HDO'),
+        array('sensor', 'Boiler Energy'),
+        array('sensor', 'Boiler Cooldown Remaining'),
+        array('text_sensor', 'Boiler Guard State'),
+        array('sensor', 'ESP Uptime'),
+        array('sensor', 'ESP Wi-Fi RSSI'),
+        array('sensor', 'ESP Free Heap'),
+        array('sensor', 'ESP Min Free Heap'),
+        array('text_sensor', 'ESP Reset Reason'),
+        array('text_sensor', 'ESPHome Version'),
+        array('text_sensor', 'Boiler Guard Reason'),
+        array('sensor', 'Boiler Continuous Heat Seconds'),
+        array('sensor', 'Boiler Lease Remaining'),
+        array('text_sensor', 'Boiler Version'),
+        array('text_sensor', 'Boiler Name'),
+        array('text_sensor', 'Boiler State'),
+        array('number', 'Boiler Requested Target'),
+        array('select', 'Boiler Requested Mode'),
+        array('text_sensor', 'Boiler Pair Trace'),
+        array('text_sensor', 'Boiler Last Disconnect'),
+        array('sensor', 'Boiler Pair Attempts'),
+        array('sensor', 'Boiler Connect Count'),
+        array('text_sensor', 'BLE Scan Results'),
+    );
 
     public function __construct($config)
     {
@@ -138,9 +185,162 @@ class Transport
             $this->lastError = array('stage' => 'host', 'reason' => $v['reason']);
             return null;
         }
-        $query = 'value=' . rawurlencode((string) $value);
-        $url = $this->buildUrl($domain, $name, $query);
-        return $this->request('POST', $url);
+        // The firmware rest_api applies writes ONLY on POST /{number|select}/{name}/set
+        // (like the old ESPHome web_server); without /set it answers 404.
+        return $this->request('POST', $this->buildSetUrl($domain, $name, $value));
+    }
+
+    /** URL of a guarded write: POST /{domain}/{name}/set?value=... */
+    public function buildSetUrl($domain, $name, $value)
+    {
+        return $this->buildUrl($domain, $name) . '/set?value=' . rawurlencode((string) $value);
+    }
+
+    /** URL of a button press: POST /button/{name}/press */
+    public function buildPressUrl($name)
+    {
+        return $this->buildUrl('button', $name, '') . '/press';
+    }
+
+    public function getLastSource()
+    {
+        return $this->lastSource;
+    }
+
+    /**
+     * ONE request for every non-internal entity: GET /state (see
+     * docs/api-contract.md). Returns map domain => name => array(value, state)
+     * or null (lastError set). Falls back to per-entity GETs ONLY when the
+     * firmware answers 404 (old build without /state); auth/transport/json
+     * errors never trigger the fallback.
+     */
+    public function getAll()
+    {
+        $this->lastSource = '';
+        $v = self::validateHost($this->host);
+        if (!$v['ok']) {
+            $this->lastError = array('stage' => 'host', 'reason' => $v['reason']);
+            return null;
+        }
+        $this->lastError = array();
+        $url = 'http://' . $this->host . ':' . $this->port . '/state';
+        $raw = $this->rawRequest('GET', $url, self::STATE_MAX_TIME);
+        if ($raw['errno'] !== 0) {
+            $this->lastError = $raw['errno'] === -1
+                ? array('stage' => 'curl', 'reason' => 'curl_extension_missing')
+                : array('stage' => 'transport', 'reason' => 'curl_errno_' . $raw['errno'], 'detail' => $raw['error']);
+            return null;
+        }
+        $c = self::classifyStateResponse($raw['http'], $raw['body']);
+        if ($c['kind'] === 'map') {
+            $this->lastSource = 'state';
+            return $c['map'];
+        }
+        if ($c['kind'] === 'legacy') {
+            return $this->getAllLegacy();
+        }
+        $this->lastError = $c['error'];
+        return null;
+    }
+
+    /** Per-entity fallback for firmware without GET /state. Same map shape. */
+    public function getAllLegacy()
+    {
+        $raw = array();
+        $any = false;
+        $lastErr = array();
+        foreach (self::LEGACY_ENTITIES as $pair) {
+            $j = $this->getState($pair[0], $pair[1]);
+            if ($j === null) {
+                $lastErr = $this->lastError;
+                continue;
+            }
+            $any = true;
+            $raw[$pair[0]][$pair[1]] = $j;
+        }
+        if (!$any) {
+            $this->lastError = $lastErr;
+            return null;
+        }
+        $this->lastError = array();
+        $this->lastSource = 'legacy';
+        return self::parseAll($raw);
+    }
+
+    /**
+     * PURE: classify the answer to GET /state.
+     * 200..299 + JSON object -> kind 'map'; 404 -> 'legacy'; everything else
+     * -> 'error' with a lastError-shaped array. Invalid UTF-8 inside the body
+     * (stray BLE device name) is substituted, never fatal.
+     */
+    public static function classifyStateResponse($httpCode, $body)
+    {
+        $httpCode = (int) $httpCode;
+        if ($httpCode === 404) {
+            return array('kind' => 'legacy');
+        }
+        if ($httpCode === 401 || $httpCode === 403) {
+            return array('kind' => 'error', 'error' => array('stage' => 'auth', 'reason' => 'http_' . $httpCode, 'http_code' => $httpCode));
+        }
+        if ($httpCode < 200 || $httpCode >= 300) {
+            return array('kind' => 'error', 'error' => array('stage' => 'http', 'reason' => 'http_' . $httpCode, 'http_code' => $httpCode));
+        }
+        $decoded = json_decode((string) $body, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+        if (!is_array($decoded)) {
+            return array('kind' => 'error', 'error' => array('stage' => 'json', 'reason' => 'bad_json'));
+        }
+        return array('kind' => 'map', 'map' => self::parseAll($decoded));
+    }
+
+    /**
+     * PURE: normalise a decoded /state document into
+     *   domain => name => array('value' => .., 'state' => ..)
+     * Same semantics as numericValue/boolValue/stringValue: missing, NaN or
+     * non-numeric -> null (NEVER 0). Keys starting with '_' are ignored; the
+     * write-only SENSITIVE entities are dropped.
+     */
+    public static function parseAll($decoded)
+    {
+        $out = array();
+        if (!is_array($decoded)) {
+            return $out;
+        }
+        foreach (self::STATE_DOMAINS as $domain) {
+            if (!isset($decoded[$domain]) || !is_array($decoded[$domain])) {
+                continue;
+            }
+            $out[$domain] = array();
+            foreach ($decoded[$domain] as $name => $e) {
+                $name = (string) $name;
+                if ($name === '' || $name[0] === '_' || !is_array($e)) {
+                    continue;
+                }
+                if (isset(self::SENSITIVE[$domain]) && in_array($name, self::SENSITIVE[$domain], true)) {
+                    continue;
+                }
+                $state = (array_key_exists('state', $e) && is_string($e['state'])) ? $e['state'] : null;
+                if ($domain === 'sensor' || $domain === 'number') {
+                    $value = self::numericValue($e);
+                } elseif ($domain === 'binary_sensor') {
+                    $value = self::boolValue($e);
+                } else {
+                    $state = self::stringValue($e);
+                    $value = $state;
+                }
+                $out[$domain][$name] = array('value' => $value, 'state' => $state);
+            }
+        }
+        return $out;
+    }
+
+    /** Null-safe lookup of one entity in a map from getAll()/parseAll(). */
+    public static function entity($map, $domain, $name)
+    {
+        if (is_array($map) && isset($map[$domain]) && is_array($map[$domain])
+            && isset($map[$domain][$name]) && is_array($map[$domain][$name])) {
+            return $map[$domain][$name];
+        }
+        return null;
     }
 
     /** POST a button press (lease renew, release/reconnect BLE). */
@@ -151,23 +351,24 @@ class Transport
             $this->lastError = array('stage' => 'host', 'reason' => $v['reason']);
             return null;
         }
-        $url = $this->buildUrl('button', $name, '') . '/press';
-        return $this->request('POST', $url);
+        return $this->request('POST', $this->buildPressUrl($name));
     }
 
-    private function request($method, $url)
+    /**
+     * One cURL round trip. Returns array(errno, error, http, body); errno -1 =
+     * cURL extension missing. $maxTime null -> the configured per-call limit.
+     */
+    private function rawRequest($method, $url, $maxTime = null)
     {
-        $this->lastError = array();
         if (!function_exists('curl_init')) {
-            $this->lastError = array('stage' => 'curl', 'reason' => 'curl_extension_missing');
-            return null;
+            return array('errno' => -1, 'error' => '', 'http' => 0, 'body' => '');
         }
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $this->connectTimeout);
-        curl_setopt($ch, CURLOPT_TIMEOUT, $this->maxTime);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $maxTime === null ? $this->maxTime : (int) $maxTime);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
         // Never resolve to an unexpected redirect; LAN only.
         if ($this->user !== '') {
@@ -179,17 +380,33 @@ class Transport
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_error($ch);
         curl_close($ch);
+        return array('errno' => $errno, 'error' => $err, 'http' => $httpCode, 'body' => $body);
+    }
+
+    private function request($method, $url)
+    {
+        $this->lastError = array();
+        $raw = $this->rawRequest($method, $url);
+        if ($raw['errno'] === -1) {
+            $this->lastError = array('stage' => 'curl', 'reason' => 'curl_extension_missing');
+            return null;
+        }
+        $body = $raw['body'];
+        $errno = $raw['errno'];
+        $httpCode = $raw['http'];
+        $err = $raw['error'];
 
         if ($errno !== 0) {
             $this->lastError = array('stage' => 'transport', 'reason' => 'curl_errno_' . $errno, 'detail' => $err);
             return null;
         }
         if ($httpCode === 401 || $httpCode === 403) {
-            $this->lastError = array('stage' => 'auth', 'reason' => 'http_' . $httpCode);
+            $this->lastError = array('stage' => 'auth', 'reason' => 'http_' . $httpCode, 'http_code' => $httpCode);
             return null;
         }
         if ($httpCode < 200 || $httpCode >= 300) {
-            $this->lastError = array('stage' => 'http', 'reason' => 'http_' . $httpCode);
+            // The ESP ANSWERED (e.g. 404/400): a request error, not "ESP unreachable".
+            $this->lastError = array('stage' => 'http', 'reason' => 'http_' . $httpCode, 'http_code' => $httpCode);
             return null;
         }
         // For POST set/press ESPHome may return empty body with 200; that is OK

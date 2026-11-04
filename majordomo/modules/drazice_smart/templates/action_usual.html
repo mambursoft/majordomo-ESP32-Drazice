@@ -3,6 +3,7 @@
   <div class="panel-heading">
     <img src="/img/modules/drazice_smart.png" style="width:20px;height:20px;vertical-align:middle;margin-right:6px;" onerror="this.style.display='none'">
     <strong><#LANG_DS_TITLE#></strong>
+    [#if DATA_STALE="1"#]<span class="label label-warning"><#LANG_DS_DATA_STALE#>[#if DATA_HAS="1"#] · <#LANG_DS_DATA_UPDATED#> [#DATA_AGE_S#] <#LANG_DS_DATA_AGO#>[#endif#]</span>[#endif#]
     [#if HTTP_AVAILABLE="1"#]
       <span class="label label-success pull-right"><#LANG_DS_ST_HTTP_OK#></span>
     [#else#]

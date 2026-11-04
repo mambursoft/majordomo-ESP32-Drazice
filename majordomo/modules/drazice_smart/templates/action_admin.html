@@ -50,54 +50,58 @@
     <li class="[#if TAB="advanced"#]active[#endif#]"><a href="?tab=advanced"><span class="glyphicon glyphicon-cog"></span> <#LANG_DS_TAB_ADVANCED#></a></li>
   </ul>
 
+  <noscript><div class="alert alert-info"><#LANG_DS_NOSCRIPT_NOTE#></div></noscript>
+
+  <div id="ds-meta" class="text-muted" style="margin-bottom:10px;font-size:12px;">
+    <span data-ds-meta="age">[#if DATA_HAS="1"#]<#LANG_DS_DATA_UPDATED#> [#DATA_AGE_S#] <#LANG_DS_DATA_AGO#>[#endif#]</span>
+    <span class="label label-warning" data-ds-meta="stale" style="[#if DATA_HAS="1"#][#if DATA_STALE="1"#]display:inline;[#else#]display:none;[#endif#][#else#]display:none;[#endif#]"><#LANG_DS_DATA_STALE#></span>
+    <span class="label label-danger" data-ds-meta="fail" style="[#if DATA_FETCH_OK="0"#]display:inline;[#else#]display:none;[#endif#]"><#LANG_DS_DATA_LAST_FAIL#></span>
+    <span data-ds-meta="none" style="[#if DATA_HAS="0"#]display:inline;[#else#]display:none;[#endif#]"><#LANG_DS_DATA_NONE#></span>
+    <button type="button" id="ds-refresh" class="btn btn-default btn-xs"><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_REFRESH#></button>
+    <span class="ds-spinner" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
+  </div>
+
+  <div id="ds-banner" role="status" aria-live="polite"></div>
+
   <!-- ================= STATUS ================= -->
   [#if TAB="status"#]
   <div style="margin-bottom:12px;">
-    [#if HTTP_AVAILABLE="1"#]
-      [#if DG_BOILER_STATE="Connected"#]
-        <span class="label label-success" style="padding:6px 10px;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_ST_CONN_OK#></span>
-      [#else#]
-        [#if DG_BOILER_STATE="Require PIN"#]
-          <span class="label label-warning" style="padding:6px 10px;"><span class="glyphicon glyphicon-alert"></span> <#LANG_DS_ST_CONN_PIN#></span>
-        [#else#]
-          <span class="label label-success" style="padding:6px 10px;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_ST_CONN_OK#></span>
-        [#endif#]
-      [#endif#]
-    [#else#]
-      <span class="label label-danger" style="padding:6px 10px;"><span class="glyphicon glyphicon-remove-sign"></span> <#LANG_DS_ST_CONN_NO#></span>
-    [#endif#]
+    <span class="label label-success" data-ds-conn="ok" style="padding:6px 10px;[#if HTTP_AVAILABLE="1"#][#if DG_BOILER_STATE="Require PIN"#]display:none;[#endif#][#else#]display:none;[#endif#]"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_ST_CONN_OK#></span>
+    <span class="label label-warning" data-ds-conn="pin" style="padding:6px 10px;[#if HTTP_AVAILABLE="1"#][#if DG_BOILER_STATE="Require PIN"#]display:inline-block;[#else#]display:none;[#endif#][#else#]display:none;[#endif#]"><span class="glyphicon glyphicon-alert"></span> <#LANG_DS_ST_CONN_PIN#></span>
+    <span class="label label-danger" data-ds-conn="no" style="padding:6px 10px;[#if HTTP_AVAILABLE="1"#]display:none;[#endif#]"><span class="glyphicon glyphicon-remove-sign"></span> <#LANG_DS_ST_CONN_NO#></span>
+    <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
   </div>
   <div class="row">
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_TEMP_UPPER#></div>
-      <div style="font-size:30px;font-weight:bold;">[#TEMP_UPPER_F#]</div>
-      <small class="text-muted"><#LANG_DS_ST_TEMP_LOWER#>: [#TEMP_LOWER_F#]</small>
+      <div style="font-size:30px;font-weight:bold;" data-ds="temp_upper_f">[#TEMP_UPPER_F#]</div>
+      <small class="text-muted"><#LANG_DS_ST_TEMP_LOWER#>: <span data-ds="temp_lower_f">[#TEMP_LOWER_F#]</span></small>
     </div></div></div>
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_HEATING#></div>
-      <div style="font-size:30px;font-weight:bold;">[#HEATING_F#]</div>
-      <small class="text-muted"><#LANG_DS_ST_HDO#>: [#HDO_F#]</small>
+      <div style="font-size:30px;font-weight:bold;" data-ds="heating_f">[#HEATING_F#]</div>
+      <small class="text-muted"><#LANG_DS_ST_HDO#>: <span data-ds="hdo_f">[#HDO_F#]</span></small>
     </div></div></div>
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_POWER#></div>
-      <div style="font-size:22px;font-weight:bold;">[#POWER_SOURCE#]</div>
-      <small class="text-muted">[#POWER_HUMAN#]</small>
+      <div style="font-size:22px;font-weight:bold;" data-ds="power_source">[#POWER_SOURCE#]</div>
+      <small class="text-muted" data-ds="power_human">[#POWER_HUMAN#]</small>
     </div></div></div>
     <div class="col-md-3"><div class="panel panel-default"><div class="panel-body">
       <div class="text-muted"><#LANG_DS_ST_SOC#></div>
-      <div style="font-size:30px;font-weight:bold;">[#SOC_F#]</div>
-      <small class="text-muted"><#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<#LANG_DS_YES#>[#else#]<#LANG_DS_NO#>[#endif#]</small>
+      <div style="font-size:30px;font-weight:bold;" data-ds="soc_f">[#SOC_F#]</div>
+      <small class="text-muted"><#LANG_DS_ST_TARIFF#>: <span data-ds="tariff_active">[#if TARIFF_ACTIVE="1"#]<#LANG_DS_YES#>[#else#]<#LANG_DS_NO#>[#endif#]</span></small>
     </div></div></div>
   </div>
   <div class="panel panel-info">
     <div class="panel-heading"><strong><#LANG_DS_ST_WHY#></strong></div>
     <div class="panel-body">
-      <div style="font-size:16px;margin-bottom:6px;">[#DECISION_HUMAN#]</div>
+      <div style="font-size:16px;margin-bottom:6px;" data-ds="decision_human">[#DECISION_HUMAN#]</div>
       <div class="text-muted" style="font-size:12px;">
-        <#LANG_DS_ST_DECISION#>: <code>[#DECISION_ACTION#]</code> · [#DECISION_REASON#]
-        &nbsp;|&nbsp; <#LANG_DS_ST_GUARD#>: <code>[#GUARD_STATE#]</code>
-        &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: [#COOLDOWN_F#]
-        &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: [#ENERGY_F#]
+        <#LANG_DS_ST_DECISION#>: <code data-ds="decision_action">[#DECISION_ACTION#]</code> · <span data-ds="decision_reason">[#DECISION_REASON#]</span>
+        &nbsp;|&nbsp; <#LANG_DS_ST_GUARD#>: <code data-ds="guard_state">[#GUARD_STATE#]</code>
+        &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: <span data-ds="cooldown_f">[#COOLDOWN_F#]</span>
+        &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: <span data-ds="energy_f">[#ENERGY_F#]</span>
       </div>
     </div>
   </div>
@@ -167,19 +171,14 @@
       <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_DG_PIN_HINT#></div>
       <p>
         <#LANG_DS_DG_BOILER_STATE#>:
-        [#if DG_BOILER_STATE="Require PIN"#]
-          <span class="label label-warning"><#LANG_DS_SETUP_PIN_BADGE_REQ#></span>
-        [#else#]
-          [#if DG_BOILER_STATE="Connected"#]
-            <span class="label label-success"><#LANG_DS_SETUP_PIN_BADGE_OK#></span>
-          [#else#]
-            <span class="label label-default"><#LANG_DS_SETUP_PIN_BADGE_MUTED#> ([#DG_BOILER_STATE#])</span>
-          [#endif#]
-        [#endif#]
+        <span class="label label-warning" data-ds-pairbadge="req" style="[#if DG_BOILER_STATE="Require PIN"#]display:inline;[#else#]display:none;[#endif#]"><#LANG_DS_SETUP_PIN_BADGE_REQ#></span>
+        <span class="label label-success" data-ds-pairbadge="ok" style="[#if DG_BOILER_STATE="Connected"#]display:inline;[#else#]display:none;[#endif#]"><#LANG_DS_SETUP_PIN_BADGE_OK#></span>
+        <span class="label label-default" data-ds-pairbadge="other" style="[#if DG_BOILER_STATE="Require PIN"#]display:none;[#else#][#if DG_BOILER_STATE="Connected"#]display:none;[#else#]display:inline;[#endif#][#endif#]"><#LANG_DS_SETUP_PIN_BADGE_MUTED#> (<span data-ds="boiler_state">[#DG_BOILER_STATE#]</span>)</span>
+        <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
       </p>
       <form method="post" action="?tab=setup" class="form-inline" style="margin-bottom:10px;">
         <input type="hidden" name="op" value="send_pin"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <input type="hidden" name="pin_render_cc" value="[#PAIR_RENDER_CC#]">
+        <input type="hidden" name="pin_render_cc" value="[#PAIR_RENDER_CC#]" data-ds-pair-cc="1">
         <input class="form-control" type="text" inputmode="numeric" pattern="[0-9]{1,4}" maxlength="4" name="pin" placeholder="PIN">
         <button class="btn btn-default" type="submit"><#LANG_DS_DG_SEND_PIN#></button>
         <small class="text-muted" style="display:block;margin-top:4px;"><#LANG_DS_SETUP_PIN_HINT#></small>
@@ -194,10 +193,14 @@
           [#if PIN_BAD="1"#]
             <div class="alert alert-warning" style="margin:0;"><#LANG_DS_SETUP_PIN_BAD#></div>
           [#else#]
-            [#if PIN_ESP_DOWN="1"#]
-              <div class="alert alert-danger" style="margin:0;"><#LANG_DS_SETUP_PIN_ESP_DOWN#></div>
+            [#if PIN_HTTP_ERR="1"#]
+              <div class="alert alert-danger" style="margin:0;"><#LANG_DS_SETUP_PIN_HTTP_ERR#> (HTTP [#PIN_HTTP_CODE#])</div>
             [#else#]
-              <div class="alert alert-info" style="margin:0;"><#LANG_DS_SETUP_PIN_SENT#></div>
+              [#if PIN_ESP_DOWN="1"#]
+                <div class="alert alert-danger" style="margin:0;"><#LANG_DS_SETUP_PIN_ESP_DOWN#></div>
+              [#else#]
+                <div class="alert alert-info" style="margin:0;"><#LANG_DS_SETUP_PIN_SENT#></div>
+              [#endif#]
             [#endif#]
           [#endif#]
         [#endif#]
@@ -207,16 +210,21 @@
         </div>
       [#endif#]
 
+      <div id="ds-pin-trace" class="well well-sm" style="margin:8px 0 0 0;font-size:12px;display:none;">
+        <strong><#LANG_DS_PAIR_AFTER_SUBMIT#>:</strong> <code data-ds-pin="trace_tail" style="white-space:normal;word-break:break-all;"></code><br>
+        <#LANG_DS_PAIR_LAST_DISC#>: <code data-ds-pin="last_disconnect" style="white-space:normal;word-break:break-all;"></code>
+      </div>
+
       <hr style="margin:12px 0;">
       <h5><strong><#LANG_DS_PAIR_TRACE_TITLE#></strong></h5>
       <p class="text-muted" style="font-size:12px;"><#LANG_DS_PAIR_EXPLAIN#></p>
       <table class="table table-condensed" style="font-size:12px;">
-        <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code>[#DG_PAIR_ATTEMPTS#]</code></td></tr>
-        <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code>[#DG_CONNECT_COUNT#]</code></td></tr>
-        <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code>[#DG_LAST_DISCONNECT#]</code></td></tr>
-        <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;">[#DG_PAIR_TRACE#]</code></td></tr>
+        <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code data-ds="pair_attempts">[#DG_PAIR_ATTEMPTS#]</code></td></tr>
+        <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code data-ds="connect_count">[#DG_CONNECT_COUNT#]</code></td></tr>
+        <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code data-ds="last_disconnect_raw">[#DG_LAST_DISCONNECT#]</code></td></tr>
+        <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;" data-ds="trace_raw">[#DG_PAIR_TRACE#]</code></td></tr>
       </table>
-      [#if PAIR_HAS_TRACE="0"#]<div class="text-muted" style="font-size:12px;"><#LANG_DS_PAIR_NO_DATA#></div>[#endif#]
+      <div id="ds-pair-notrace" class="text-muted" style="font-size:12px;[#if PAIR_HAS_TRACE="0"#]display:block;[#else#]display:none;[#endif#]"><#LANG_DS_PAIR_NO_DATA#></div>
       <small class="text-muted"><#LANG_DS_PAIR_LEGEND#></small>
     </div>
   </div>
@@ -361,16 +369,14 @@
   <h4><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_POLICY_FORECAST#></h4>
   <p class="text-muted"><#LANG_DS_FC_INTRO#></p>
   <div class="panel panel-default"><div class="panel-body">
-    [#if FC_AVAILABLE="1"#]
-      <div class="row">
-        <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_TODAY#></div><div style="font-size:24px;font-weight:bold;">[#FC_TODAY_F#]</div></div>
-        <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_TOMORROW#></div><div style="font-size:24px;font-weight:bold;">[#FC_TOMORROW_F#]</div></div>
-        <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_PROVIDER#></div><div style="font-size:18px;">[#FC_PROVIDER#]</div></div>
-        <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_QUALITY#></div><div style="font-size:18px;">[#FC_QUALITY#]</div></div>
-      </div>
-    [#else#]
-      <div class="alert alert-warning" style="margin:0;"><#LANG_DS_FC_NONE#></div>
-    [#endif#]
+    <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
+    <div id="ds-fc-ok" class="row" style="[#if FC_AVAILABLE="1"#]display:block;[#else#]display:none;[#endif#]">
+      <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_TODAY#></div><div style="font-size:24px;font-weight:bold;" data-ds="today_f">[#FC_TODAY_F#]</div></div>
+      <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_TOMORROW#></div><div style="font-size:24px;font-weight:bold;" data-ds="tomorrow_f">[#FC_TOMORROW_F#]</div></div>
+      <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_PROVIDER#></div><div style="font-size:18px;" data-ds-fc="provider">[#FC_PROVIDER#]</div></div>
+      <div class="col-md-3"><div class="text-muted"><#LANG_DS_FC_QUALITY#></div><div style="font-size:18px;" data-ds-fc="quality">[#FC_QUALITY#]</div></div>
+    </div>
+    <div id="ds-fc-none" class="alert alert-warning" style="margin:0;[#if FC_AVAILABLE="1"#]display:none;[#else#]display:block;[#endif#]"><#LANG_DS_FC_NONE#></div>
   </div></div>
 
   <form method="post" action="?tab=policy">
@@ -419,6 +425,7 @@
     </div>
     <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></button>
   </form>
+  <div id="ds-scan-result"></div>
   [#if SCAN_NEED_BASE_IP="1"#]
     <div class="alert alert-warning"><#LANG_DS_SCAN_NEED_BASE_IP#></div>
   [#endif#]
@@ -435,6 +442,12 @@
   <hr>
   <!-- (b) BLE boiler scan (optional) -->
   <h4><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></h4>
+  <p>
+    <button type="button" id="ds-ble-scan" class="btn btn-default"><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></button>
+    <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
+  </p>
+  <div id="ds-ble-result"></div>
+  <div id="ds-ble-server">
   [#if BLE_AVAILABLE="1"#]
     <p class="text-muted"><#LANG_DS_BLE_HINT#></p>
     [#if SELECTED_BLE_MAC#]
@@ -471,6 +484,7 @@
   [#else#]
     <p class="text-muted"><span class="glyphicon glyphicon-info-sign"></span> <#LANG_DS_BLE_OPTIONAL#></p>
   [#endif#]
+  </div>
 
   <hr>
   <!-- (c) Simple Devices map -->
@@ -528,13 +542,13 @@
   <div class="row">
     <div class="col-md-7">
       <h4><#LANG_DS_LOG_DECISIONS#></h4>
-      <table class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th><#LANG_DS_LOG_ACTION#></th><th><#LANG_DS_LOG_REASON#></th></tr></thead><tbody>
+      <table id="ds-log-decisions" class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th><#LANG_DS_LOG_ACTION#></th><th><#LANG_DS_LOG_REASON#></th></tr></thead><tbody>
       [#begin LOG_DECISIONS#]<tr><td>[#TIME#]</td><td><code>[#ACTION#]</code></td><td>[#REASON#]</td></tr>[#end LOG_DECISIONS#]
       </tbody></table>
     </div>
     <div class="col-md-5">
       <h4><#LANG_DS_LOG_COMMANDS#></h4>
-      <table class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th>kind</th><th><#LANG_DS_LOG_STATUS#></th></tr></thead><tbody>
+      <table id="ds-log-commands" class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th>kind</th><th><#LANG_DS_LOG_STATUS#></th></tr></thead><tbody>
       [#begin LOG_COMMANDS#]<tr><td>[#TIME#]</td><td>[#KIND#]</td><td>[#STATUS#]</td></tr>[#end LOG_COMMANDS#]
       </tbody></table>
     </div>
@@ -550,42 +564,42 @@
       <div class="panel panel-default">
         <div class="panel-heading"><strong><#LANG_DS_DG_BOILER#></strong></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_DG_BOILER_STATE#></td><td><code>[#DG_BOILER_STATE#]</code></td></tr>
-          <tr><td><#LANG_DS_DG_VERSION#></td><td>[#DG_BOILER_VER#]</td></tr>
-          <tr><td><#LANG_DS_DG_BOILER_NAME#></td><td>[#DG_BOILER_NAME#]</td></tr>
-          <tr><td><#LANG_DS_CTL_REQ_TARGET#></td><td>[#DG_REQ_TARGET#] °C</td></tr>
-          <tr><td><#LANG_DS_CTL_REQ_MODE#></td><td>[#DG_REQ_MODE#]</td></tr>
+          <tr><td><#LANG_DS_DG_BOILER_STATE#></td><td><code data-ds-dg="BOILER_STATE">[#DG_BOILER_STATE#]</code></td></tr>
+          <tr><td><#LANG_DS_DG_VERSION#></td><td data-ds-dg="BOILER_VER">[#DG_BOILER_VER#]</td></tr>
+          <tr><td><#LANG_DS_DG_BOILER_NAME#></td><td data-ds-dg="BOILER_NAME">[#DG_BOILER_NAME#]</td></tr>
+          <tr><td><#LANG_DS_CTL_REQ_TARGET#></td><td><span data-ds-dg="REQ_TARGET">[#DG_REQ_TARGET#]</span> °C</td></tr>
+          <tr><td><#LANG_DS_CTL_REQ_MODE#></td><td data-ds-dg="REQ_MODE">[#DG_REQ_MODE#]</td></tr>
         </table>
       </div>
       <div class="panel panel-default">
         <div class="panel-heading"><strong><#LANG_DS_PAIR_TRACE_TITLE#></strong></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code>[#DG_PAIR_ATTEMPTS#]</code></td></tr>
-          <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code>[#DG_CONNECT_COUNT#]</code></td></tr>
-          <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code style="white-space:normal;word-break:break-all;">[#DG_LAST_DISCONNECT#]</code></td></tr>
-          <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;">[#DG_PAIR_TRACE#]</code></td></tr>
+          <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code data-ds-dg="PAIR_ATTEMPTS">[#DG_PAIR_ATTEMPTS#]</code></td></tr>
+          <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code data-ds-dg="CONNECT_COUNT">[#DG_CONNECT_COUNT#]</code></td></tr>
+          <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code style="white-space:normal;word-break:break-all;" data-ds-dg="LAST_DISCONNECT">[#DG_LAST_DISCONNECT#]</code></td></tr>
+          <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;" data-ds-dg="PAIR_TRACE">[#DG_PAIR_TRACE#]</code></td></tr>
         </table>
       </div>
       <div class="panel panel-default">
         <div class="panel-heading"><strong><#LANG_DS_DG_GUARD#></strong></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_DG_GUARD_STATE#></td><td><code>[#DG_GUARD_STATE#]</code></td></tr>
-          <tr><td><#LANG_DS_DG_GUARD_REASON#></td><td>[#DG_GUARD_REASON#]</td></tr>
-          <tr><td><#LANG_DS_DG_CONT_HEAT#></td><td>[#DG_CONT_HEAT_S#] с</td></tr>
-          <tr><td><#LANG_DS_ST_COOLDOWN#></td><td>[#DG_COOLDOWN_S#] с</td></tr>
-          <tr><td><#LANG_DS_DG_LEASE#></td><td>[#DG_LEASE_S#] с</td></tr>
+          <tr><td><#LANG_DS_DG_GUARD_STATE#></td><td><code data-ds-dg="GUARD_STATE">[#DG_GUARD_STATE#]</code></td></tr>
+          <tr><td><#LANG_DS_DG_GUARD_REASON#></td><td data-ds-dg="GUARD_REASON">[#DG_GUARD_REASON#]</td></tr>
+          <tr><td><#LANG_DS_DG_CONT_HEAT#></td><td><span data-ds-dg="CONT_HEAT_S">[#DG_CONT_HEAT_S#]</span> с</td></tr>
+          <tr><td><#LANG_DS_ST_COOLDOWN#></td><td><span data-ds-dg="COOLDOWN_S">[#DG_COOLDOWN_S#]</span> с</td></tr>
+          <tr><td><#LANG_DS_DG_LEASE#></td><td><span data-ds-dg="LEASE_S">[#DG_LEASE_S#]</span> с</td></tr>
         </table>
       </div>
     </div>
     <div class="col-md-6">
       <div class="panel panel-default">
-        <div class="panel-heading"><strong><#LANG_DS_DG_ESP#></strong></div>
+        <div class="panel-heading"><strong><#LANG_DS_DG_ESP#></strong> <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_DG_UPTIME#></td><td>[#DIAG.UPTIME#] с</td></tr>
-          <tr><td><#LANG_DS_DG_RSSI#></td><td>[#DIAG.RSSI#] dBm</td></tr>
-          <tr><td><#LANG_DS_DG_HEAP#></td><td>[#DIAG.FREE_HEAP#] B (min [#DIAG.MIN_FREE_HEAP#])</td></tr>
-          <tr><td><#LANG_DS_DG_RESET#></td><td>[#DIAG.RESET_REASON#]</td></tr>
-          <tr><td>ESPHome</td><td>[#DIAG.ESPHOME_VER#]</td></tr>
+          <tr><td><#LANG_DS_DG_UPTIME#></td><td><span data-ds-dg="UPTIME">[#DG_UPTIME#]</span> с</td></tr>
+          <tr><td><#LANG_DS_DG_RSSI#></td><td><span data-ds-dg="RSSI">[#DG_RSSI#]</span> dBm</td></tr>
+          <tr><td><#LANG_DS_DG_HEAP#></td><td><span data-ds-dg="FREE_HEAP">[#DG_FREE_HEAP#]</span> B (min <span data-ds-dg="MIN_FREE_HEAP">[#DG_MIN_FREE_HEAP#]</span>)</td></tr>
+          <tr><td><#LANG_DS_DG_RESET#></td><td data-ds-dg="RESET_REASON">[#DG_RESET_REASON#]</td></tr>
+          <tr><td>ESPHome</td><td data-ds-dg="ESPHOME_VER">[#DG_ESPHOME_VER#]</td></tr>
         </table>
       </div>
       <div class="panel panel-default">
@@ -602,3 +616,6 @@
   [#endif#]
 
 </div>
+
+<script>window.DS_I18N = [#JS_I18N#]; window.DS_CFG = [#JS_CONFIG#];</script>
+<script src="<#ROOTHTML#>modules/drazice_smart/js/drazice_smart.js?v=[#JS_VER#]"></script>

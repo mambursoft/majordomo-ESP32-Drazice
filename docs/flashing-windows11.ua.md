@@ -71,6 +71,73 @@ py -3 -m venv .venv-flash
 Адресу `0x0` беремо лише якщо так каже `flash-manifest.json` (merged image з base
 0x0). Скрипт сам відмовиться писати без прапорця підтвердження.
 
+## Накат змін одним кроком: скрипти deploy
+
+Кроки 4–6 вручну потрібні лише для першої прошивки та діагностики. Для
+звичайного оновлення є скрипт `tools/deploy.py`. Він збирає прошивку і
+заливає її одним викликом. Запускайте з кореня репозиторію, через
+`.venv-build` (там ESPHome).
+
+| Режим | Команда | Що робить |
+|---|---|---|
+| OTA (по Wi-Fi) | `tools\deploy-ota.bat 172.16.0.70` | `esphome upload --device <IP>`: за потреби компілює і заливає по мережі (порт 3232) |
+| USB (по кабелю) | `tools\deploy-usb.bat COM7` | компіляція → `build_firmware.py` (merged `firmware.factory.bin`) → запис з `0x0` через `.venv-flash` (esptool 4.x) |
+| Лише збірка | `.\.venv-build\Scripts\python.exe tools\deploy.py build` | компілює без заливки |
+
+`.bat`-файли — тонкі обгортки над `deploy.py`. Їх можна викликати й напряму:
+
+```powershell
+.\.venv-build\Scripts\python.exe tools\deploy.py ota --host 172.16.0.70
+.\.venv-build\Scripts\python.exe tools\deploy.py usb --port COM7 --use-flash-venv
+```
+
+IP або hostname і номер порту замініть на свої. Пароль OTA береться з
+`firmware/secrets.yaml` (`ota_password`), у командному рядку його не передаємо.
+
+### Коли USB, а коли OTA
+
+- **OTA** — звичайний шлях, коли плата вже стоїть біля бойлера. Займає ~30 с.
+  Кабель не потрібен.
+- **USB обов'язковий**, якщо:
+  - це перша прошивка;
+  - змінилась таблиця розділів (`partitions.csv`). OTA пише лише в розділ
+    програми і не може оновити таблицю;
+  - OTA падає з `ERROR Error binary size: Unknown error from ESP`. Образ не
+    вміщується в OTA-розділ старої таблиці. Один раз прошийте по USB, далі OTA
+    працюватиме;
+  - плата не в мережі.
+- **USB стирає всю flash, включно з NVS.** Після цього плата генерує новий
+  ідентифікатор BLE-клієнта, і бойлер попросить PIN для пейрингу ще раз (див.
+  `pairing.ua.md`). OTA налаштувань і пейрингу не стирає.
+- Запис по USB через CH340 повільний: ~2 хв на сам запис і кілька хвилин на
+  компіляцію. Не перериваючи процес, дочекайтесь `Hash of data verified` і
+  `USB-заливка успішна`.
+
+### Перевірка після накату
+
+Через ~15 с після перезавантаження плата має відповідати по REST:
+
+```powershell
+curl.exe -u "<web_username>:<web_password>" http://172.16.0.70/sensor/ESP%20Free%20Heap
+```
+
+Очікувано: JSON на зразок `{"id":"sensor-esp_free_heap","value":21328,...}`.
+Без облікових даних запит має повертати `401`. Лог плати доступний лише по
+USB (нативний API ESPHome вимкнено):
+
+```powershell
+.\.venv-build\Scripts\python.exe -m esphome logs firmware\boiler-weact.yaml --device COM7
+```
+
+### Типові помилки скриптів
+
+| Симптом | Причина | Що робити |
+|---|---|---|
+| `'пускати' is not recognized...` під час запуску `.bat` | старі `.bat` з кирилицею, cmd читав їх в OEM-кодуванні | оновіть репозиторій: поточні `.bat` лише ASCII |
+| `Git not found in PATH, please install Git` під час компіляції | PlatformIO не бачить git у PATH саме цієї сесії PowerShell | перезапустіть термінал або разово: `$env:PATH = "<шлях до Git>\cmd;" + $env:PATH` |
+| `Could not connect to serial port COM7` / `Access is denied` | порт тримає інший процес (монітор порту, `esphome logs`, завислий python) | закрийте монітор/лог; за потреби завершіть процес python із `.venv-build` |
+| `OTA-заливка НЕ вдалася` | плата не в мережі, неправильний IP або інший OTA-пароль на платі | перевірте `ping`, IP та `ota_password`; якщо не допомагає — один раз прошийте по USB |
+
 ## Якщо «Connecting...» не завершується
 
 Закрийте монітори порту. Затисніть **BOOT**, під'єднайте USB (або натисніть

@@ -6,6 +6,25 @@
 Середовище: Windows, Python 3.13.13, PHP 8.2.29 CLI (цільовий runtime — PHP 7.3,
 синтаксис 7.3-сумісний), ESPHome 2025.9.3. Дата: 2026-11-01.
 
+## Модуль 1.8.0: кеш стану, AJAX-бекенд та AJAX-вкладки (виконано локально, PHP 8.2.29, 2026-11-04)
+
+| Пункт | Статус | Метод |
+|---|---|---|
+| Юніт-тести бібліотек (Transport `/state` + URL запису `/set`, StateCache, AjaxApi, сумісність з PHP 7.3, `LangKeysTest`: ключі мов, ідентичність двох наборів, токени шаблонів, статичний JS) | **PASS** | `php majordomo/tests/run.php` → PASSED: 602, FAILED: 0 (було 222 до 1.8.0) |
+| Модульні тести (0 викликів ESP при рендері 7 вкладок і `usual()`, 1 `getAll` у `cycleStep`, CSRF/метод до будь-якої роботи, коалесценція, DIRTY, ESP недоступний, відсутність `ESP_PASS` у JSON, `JS_I18N`/`JS_CONFIG`/`DATA_*` у кожній вкладці) | **PASS** | `php majordomo/tests/run_module.php` → PASSED: 323, FAILED: 0 (заглушки MajorDoMo, `CountingTransport`) |
+| Синтаксис `drazice_smart.js` | **PASS** | `node --check majordomo/modules/drazice_smart/js/drazice_smart.js` |
+| `tools/diag_install.php` (admin 7 вкладок, usual, ajax без fatal) | **PASS** | вивід містить `OK: no fatal` |
+| Мовні файли: два набори байт-у-байт | **PASS** | `fc /b` для default, ru, ua + `LangKeysTest` |
+| `esphome config` (`GET /state`, FEAT-001) | **PASS** | `Configuration is valid!`, ESPHome 2025.9.3 |
+| `esphome compile` (RAM/Flash, граф залежностей) | **PASS** | RAM 19.1%, Flash 44.6%, без ESPAsyncWebServer/AsyncTCP/ArduinoJson (запуск FEAT-001, прошивка після нього не змінювалась) |
+| Хост-тест `json_stream.h` (g++) | **PASS** | `tools/test/test_json_stream.cpp`, 17 перевірок |
+| Збірка пакета (`tools/build/build_package.py`) | **PASS** | `drazice_smart.tgz` та `app_drazice_smart.tgz` містять `modules/drazice_smart/js/drazice_smart.js` і нові lib-файли |
+| Поведінка JS у браузері (авто-оновлення Статусу ≈10 с, пейрінг ≈2 с, відправка форм без перезавантаження) | **NOT RUN** | перевірено лише читанням коду та `node --check`; браузерного прогону не було |
+| `GET /state` на реальному залізі (автентифікація, LED, heap) | **NOT RUN** | плату не прошивали |
+| Підрахунок викликів до ESP до/після | **PASS** (лише кількість викликів зі заглушок, не час на залізі) | `php tools/measure_calls.php`; admin() було 28 GET → стало 0 |
+| `php -l` усіх PHP-файлів `majordomo/` і `tools/` | **PASS** | 0 помилок (на PHP 8.2; сумісність з 7.3 перевіряє токен-скан у `Php73CompatTest`) |
+| Реальний MajorDoMo (jTemplate, сесія, MariaDB 10.3, PHP 7.3), реальна плата | **NOT RUN** | потрібне середовище користувача |
+
 ## Автоматичні тести (виконано локально)
 
 | Пункт | Статус | Метод |

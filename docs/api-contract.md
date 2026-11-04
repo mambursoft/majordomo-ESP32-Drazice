@@ -18,6 +18,24 @@ curl --user "$ESP_USER:$ESP_PASS" -X POST \
   "http://$ESP_HOST/number/Boiler%20Requested%20Target/set?value=55"
 ```
 
+## Пакетний стан: `GET /state`
+
+Один запит замість ~28 окремих `GET /{domain}/{name}` (швидші сторінки модуля).
+Відповідь — один JSON: `{"sensor":{...},"binary_sensor":{...},"text_sensor":{...},
+"number":{...},"select":{...}}`; всередині домену ключ — display-name entity,
+значення — `{"value":..,"state":..}` з тією ж семантикою, що й у per-entity GET
+(без поля `id`). Відсутній стан/NaN → `value:null` (ніколи 0).
+
+- Той самий Basic auth; без нього — `401`.
+- HTTP/1.0 з `Connection: close`, без `Content-Length`: читати до закриття.
+- internal entity не віддаються; є write-only `Boiler Pairing PIN` —
+  споживачі ігнорують його `value`.
+- Per-entity endpoints лишаються без змін.
+
+```sh
+curl --user "$ESP_USER:$ESP_PASS" --connect-timeout 2 --max-time 5 "http://$ESP_HOST/state"
+```
+
 ## Entity (див. `firmware/firmware-api-manifest.json`)
 
 Читання: `Boiler Temp Lower/Upper`, `Boiler Heating`, `Boiler HDO`,
