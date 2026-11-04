@@ -70,12 +70,16 @@ T::group('admin(): tab-specific work only on its tab');
 $m = stub_fresh_module($ct);
 $o = mt_render_admin($m, 'status');
 T::eq(isset($o['LOG_DECISIONS']), false, 'status tab: log queries skipped');
-T::eq(isset($o['OPTS_SOC_PROPERTY']), false, 'status tab: property dropdown scan skipped');
+T::eq(isset($o['OPTS_PROPS_DATALIST']), false, 'status tab: property list scan skipped');
 T::eq(isset($o['FC_AVAILABLE']), false, 'status tab: forecast skipped');
 $o = mt_render_admin($m, 'log');
 T::eq(isset($o['LOG_DECISIONS']), true, 'log tab: LOG_DECISIONS built');
 $o = mt_render_admin($m, 'policy');
-T::eq(isset($o['OPTS_SOC_PROPERTY']) && isset($o['OPTS_TIMEZONE']), true, 'policy tab: option lists built');
+T::eq(isset($o['OPTS_PROPS_DATALIST']) && isset($o['OPTS_TIMEZONE']), true, 'policy tab: shared property datalist + timezone list built');
+T::eq(isset($o['OPTS_SOC_PROPERTY']), false, 'policy tab: no per-field duplicated option lists (one shared datalist)');
+$tpl = file_get_contents(dirname(__DIR__, 2) . '/modules/drazice_smart/templates/action_admin.html');
+T::eq(substr_count($tpl, '[#OPTS_PROPS_DATALIST#]'), 1, 'template renders the property list exactly once');
+T::eq(substr_count($tpl, 'list="ds-props"'), 6, 'all 6 binding inputs use the shared datalist');
 T::eq(isset($o['FC_AVAILABLE']), true, 'policy tab: forecast built');
 
 // ---------------------------------------------------------------------------

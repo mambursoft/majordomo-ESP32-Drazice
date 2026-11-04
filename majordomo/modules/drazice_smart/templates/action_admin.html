@@ -304,6 +304,9 @@
 
   <!-- ================= POLICY (energy + tariff + forecast) ================= -->
   [#if TAB="policy"#]
+  <!-- One shared property list for every "Object.Property" binding input below
+       (rendered once instead of six full <select>s; type to search). -->
+  <datalist id="ds-props">[#OPTS_PROPS_DATALIST#]</datalist>
   <h4><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_POLICY_ENERGY#></h4>
   <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED">
@@ -320,14 +323,14 @@
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_SURPLUS_RELATED#></div>
     <div class="checkbox"><label><input type="checkbox" name="SOLAR_SURPLUS_ENABLED" value="1" [#if SOLAR_SURPLUS_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SURPLUS_ENABLE#></label></div>
     <div class="row">
-      <div class="col-md-4 form-group"><label><#LANG_DS_SOC_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="SOC_PROPERTY">[#OPTS_SOC_PROPERTY#]</select>[#else#]<input class="form-control" name="SOC_PROPERTY" value="[#CFG_SOC_PROPERTY#]">[#endif#]<small class="text-muted"><#LANG_DS_H_SOC_PROP#></small></div>
+      <div class="col-md-4 form-group"><label><#LANG_DS_SOC_PROP#></label><input class="form-control" name="SOC_PROPERTY" value="[#CFG_SOC_PROPERTY#]" list="ds-props" autocomplete="off"><small class="text-muted"><#LANG_DS_H_SOC_PROP#></small></div>
       <div class="col-md-2 form-group"><label><#LANG_DS_SURPLUS_HIGH#></label><input class="form-control" name="SURPLUS_SOC_HIGH" value="[#CFG_SURPLUS_SOC_HIGH#]"><small class="text-muted"><#LANG_DS_H_SURPLUS_HIGH#></small></div>
       <div class="col-md-2 form-group"><label><#LANG_DS_SURPLUS_LOW#></label><input class="form-control" name="SURPLUS_SOC_LOW" value="[#CFG_SURPLUS_SOC_LOW#]"><small class="text-muted"><#LANG_DS_H_SURPLUS_LOW#></small></div>
     </div>
 
     <h4><#LANG_DS_PWR_TITLE#></h4>
     <div class="row">
-      <div class="col-md-4 form-group"><label><#LANG_DS_PWR_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="POWER_PROPERTY">[#OPTS_POWER_PROPERTY#]</select>[#else#]<input class="form-control" name="POWER_PROPERTY" value="[#CFG_POWER_PROPERTY#]">[#endif#]<small class="text-muted"><#LANG_DS_H_PWR_PROP#></small></div>
+      <div class="col-md-4 form-group"><label><#LANG_DS_PWR_PROP#></label><input class="form-control" name="POWER_PROPERTY" value="[#CFG_POWER_PROPERTY#]" list="ds-props" autocomplete="off"><small class="text-muted"><#LANG_DS_H_PWR_PROP#></small></div>
       <div class="col-md-3 form-group"><label><#LANG_DS_PWR_ACTIVE_VAL#></label><input class="form-control" name="BATTERY_ACTIVE_VALUE" value="[#CFG_BATTERY_ACTIVE_VALUE#]"></div>
       <div class="col-md-3 form-group"><label><#LANG_DS_PWR_FRESH#></label><input class="form-control" name="POWER_FRESHNESS_TTL_S" value="[#CFG_POWER_FRESHNESS_TTL_S#]"><small class="text-muted"><#LANG_DS_PWR_FRESH_NOTE#></small></div>
     </div>
@@ -382,10 +385,10 @@
   <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
     <div class="row">
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TODAY_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="FORECAST_TODAY_PROP">[#OPTS_FORECAST_TODAY_PROP#]</select>[#else#]<input class="form-control" name="FORECAST_TODAY_PROP" value="[#CFG_FORECAST_TODAY_PROP#]" placeholder="SolarForecast.TodayRemainingKwh">[#endif#]</div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TOMORROW_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="FORECAST_TOMORROW_PROP">[#OPTS_FORECAST_TOMORROW_PROP#]</select>[#else#]<input class="form-control" name="FORECAST_TOMORROW_PROP" value="[#CFG_FORECAST_TOMORROW_PROP#]">[#endif#]</div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_UPDATED_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="FORECAST_UPDATED_PROP">[#OPTS_FORECAST_UPDATED_PROP#]</select>[#else#]<input class="form-control" name="FORECAST_UPDATED_PROP" value="[#CFG_FORECAST_UPDATED_PROP#]">[#endif#]</div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_PROVIDER_PROP#></label>[#if HAS_PROPERTIES="1"#]<select class="form-control" name="FORECAST_PROVIDER_PROP">[#OPTS_FORECAST_PROVIDER_PROP#]</select>[#else#]<input class="form-control" name="FORECAST_PROVIDER_PROP" value="[#CFG_FORECAST_PROVIDER_PROP#]">[#endif#]</div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TODAY_PROP#></label><input class="form-control" name="FORECAST_TODAY_PROP" value="[#CFG_FORECAST_TODAY_PROP#]" placeholder="SolarForecast.TodayRemainingKwh" list="ds-props" autocomplete="off"></div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TOMORROW_PROP#></label><input class="form-control" name="FORECAST_TOMORROW_PROP" value="[#CFG_FORECAST_TOMORROW_PROP#]" list="ds-props" autocomplete="off"></div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_FC_UPDATED_PROP#></label><input class="form-control" name="FORECAST_UPDATED_PROP" value="[#CFG_FORECAST_UPDATED_PROP#]" list="ds-props" autocomplete="off"></div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_FC_PROVIDER_PROP#></label><input class="form-control" name="FORECAST_PROVIDER_PROP" value="[#CFG_FORECAST_PROVIDER_PROP#]" list="ds-props" autocomplete="off"></div>
     </div>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>

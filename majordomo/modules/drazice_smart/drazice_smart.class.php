@@ -33,7 +33,7 @@ use DraziceSmart\AjaxApi;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.8.0';
+    const MODULE_VERSION = '1.8.1';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -382,6 +382,9 @@ EOD;
 
     /** @var Transport|null test seam: replaces the real cURL transport */
     private $transportOverride = null;
+
+    /** @var array|null per-request memo of allProperties() */
+    private $propsMemo = null;
 
     /** Inject a transport (tests / measure_calls.php). null restores the default. */
     public function setTransport($t)
@@ -1310,20 +1313,15 @@ EOD;
         // Property-binding dropdowns + timezone list: policy tab only (the
         // property scan is the heaviest DB query of the page).
         if ($tab === 'policy') {
-            // Build <select> option lists in PHP (the simple template parser can't
-            // do "selected if equals current" inside a [#begin#] loop). When the
-            // property list is empty (no DB/objects), the template falls back to a
-            // free-text input (HAS_PROPERTIES=0).
+            // ONE shared <datalist> rendered once + an <input list="ds-props"> per
+            // binding field. Previously six full <select>s each repeated every
+            // MajorDoMo property (6 x N options), which made the Policy tab very
+            // slow on real installs. The datalist also lets the user search by
+            // typing; an empty input means "not bound"; a stored value that is no
+            // longer in the list is kept because it is the input's own value.
             $props = $this->allProperties();
             $out['HAS_PROPERTIES'] = (!empty($props)) ? 1 : 0;
-            $bindFields = array(
-                'SOC_PROPERTY', 'POWER_PROPERTY', 'FORECAST_TODAY_PROP',
-                'FORECAST_TOMORROW_PROP', 'FORECAST_UPDATED_PROP', 'FORECAST_PROVIDER_PROP',
-            );
-            foreach ($bindFields as $f) {
-                $cur = isset($this->config[$f]) ? (string) $this->config[$f] : '';
-                $out['OPTS_' . $f] = $this->propertyOptionsHtml($props, $cur);
-            }
+            $out['OPTS_PROPS_DATALIST'] = $this->propertyDatalistHtml($props);
             $out['OPTS_TIMEZONE'] = $this->timezoneOptionsHtml(
                 isset($this->config['TIMEZONE']) ? (string) $this->config['TIMEZONE'] : ''
             );
@@ -2071,16 +2069,33 @@ EOD;
      */
     public function allProperties()
     {
+        if ($this->propsMemo !== null) {
+            return $this->propsMemo;
+        }
+        // Short-lived file cache (5 min) so repeated Policy-tab opens do not
+        // rescan pvalues on large installs. A property created meanwhile shows
+        // up after the TTL; it can always be typed into the input directly.
+        $cacheFile = (defined('ROOT') && is_dir(ROOT . 'cms/cached'))
+            ? ROOT . 'cms/cached/drazice_smart_props.json' : '';
+        if ($cacheFile !== '' && is_file($cacheFile)
+            && (time() - (int) @filemtime($cacheFile)) < 300) {
+            $cached = json_decode((string) @file_get_contents($cacheFile), true);
+            if (is_array($cached)) {
+                $this->propsMemo = $cached;
+                return $cached;
+            }
+        }
         $out = array();
         if (!function_exists('SQLSelect')) {
             return $out;
         }
-        $rows = SQLSelect("SELECT o.TITLE AS OBJ, p.TITLE AS PROP
+        // INNER JOIN + DISTINCT, no ORDER BY: avoids a filesort on joined text
+        // columns; the list is sorted once below in PHP.
+        $rows = SQLSelect("SELECT DISTINCT o.TITLE AS OBJ, p.TITLE AS PROP
             FROM pvalues pv
-            LEFT JOIN objects o ON o.ID = pv.OBJECT_ID
-            LEFT JOIN properties p ON p.ID = pv.PROPERTY_ID
-            WHERE o.TITLE IS NOT NULL AND p.TITLE IS NOT NULL
-            ORDER BY o.TITLE, p.TITLE");
+            INNER JOIN objects o ON o.ID = pv.OBJECT_ID
+            INNER JOIN properties p ON p.ID = pv.PROPERTY_ID
+            WHERE o.TITLE IS NOT NULL AND p.TITLE IS NOT NULL");
         if (!is_array($rows)) {
             return $out;
         }
@@ -2093,36 +2108,25 @@ EOD;
             }
         }
         sort($out, SORT_STRING | SORT_FLAG_CASE);
+        $this->propsMemo = $out;
+        if ($cacheFile !== '' && !empty($out)) {
+            @file_put_contents($cacheFile, json_encode($out), LOCK_EX);
+        }
         return $out;
     }
 
     /**
-     * Build the inner HTML of a <select> for a property-binding field: an empty
-     * first option (so "not bound" is possible) plus one <option> per property,
-     * with the currently-configured value marked selected. If $current is not
-     * present in $props it is still added (and selected) so a stored value is
-     * never lost.
+     * Inner HTML of the single shared <datalist id="ds-props">: one value-only
+     * <option> per "Object.Property" (no label text, so the HTML stays small).
      *
-     * @param array  $props   flat list of "Object.Property" strings
-     * @param string $current currently configured value
+     * @param array $props flat list of "Object.Property" strings
      * @return string
      */
-    private function propertyOptionsHtml($props, $current)
+    private function propertyDatalistHtml($props)
     {
-        $current = (string) $current;
-        $html = '<option value="">—</option>';
-        $found = false;
+        $html = '';
         foreach ($props as $name) {
-            $sel = ($name === $current) ? ' selected' : '';
-            if ($sel !== '') {
-                $found = true;
-            }
-            $html .= '<option value="' . htmlspecialchars($name, ENT_QUOTES) . '"' . $sel . '>'
-                . htmlspecialchars($name, ENT_QUOTES) . '</option>';
-        }
-        if (!$found && $current !== '') {
-            $html .= '<option value="' . htmlspecialchars($current, ENT_QUOTES) . '" selected>'
-                . htmlspecialchars($current, ENT_QUOTES) . '</option>';
+            $html .= '<option value="' . htmlspecialchars((string) $name, ENT_QUOTES, 'UTF-8') . '">';
         }
         return $html;
     }
