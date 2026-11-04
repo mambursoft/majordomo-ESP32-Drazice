@@ -239,6 +239,44 @@ class SimpleDevices
     }
 
     /**
+     * Remove the simple devices we created (the `devices` rows linked to our
+     * mapped objects). Used to re-create them after the object's property set
+     * changed. The underlying objects are NOT deleted here (ensureObject will
+     * refresh them); only the device links are removed so provision() can make
+     * fresh ones. Returns array(ok, removed(int), report).
+     */
+    public static function remove($map)
+    {
+        if (!self::available()) {
+            return array('ok' => false, 'reason' => 'devices_runtime_unavailable');
+        }
+        $report = array();
+        $removed = 0;
+        foreach ($map as $key => $d) {
+            $object = isset($d['object']) ? (string) $d['object'] : '';
+            if ($object === '') {
+                $report[$key] = 'skipped_no_object';
+                continue;
+            }
+            $dev = function_exists('SQLSelectOne')
+                ? SQLSelectOne("SELECT ID FROM devices WHERE LINKED_OBJECT='" . self::sql($object) . "'")
+                : null;
+            if (is_array($dev) && !empty($dev['ID'])) {
+                if (function_exists('SQLExec')) {
+                    SQLExec("DELETE FROM devices WHERE ID=" . (int) $dev['ID']);
+                    $removed++;
+                    $report[$key] = 'removed';
+                } else {
+                    $report[$key] = 'remove_failed';
+                }
+            } else {
+                $report[$key] = 'absent';
+            }
+        }
+        return array('ok' => true, 'removed' => $removed, 'report' => $report);
+    }
+
+    /**
      * Push the current boiler snapshot into the simple-device objects so they
      * show up in the native Devices UI. Uses dirty-checking (only writes on
      * change) to avoid setGlobal feedback loops.
@@ -250,7 +288,7 @@ class SimpleDevices
      *   relay_readonly      <- 1 (core logic must not drive the element)
      *   mode                <- reported/requested mode (string)
      */
-    public static function publish($map, $snapshot, $decision)
+    public static function publish($map, $snapshot, $decision, $manual = false)
     {
         if (!self::available()) {
             return;
@@ -258,20 +296,26 @@ class SimpleDevices
         // Thermostat.
         if (!empty($map['thermostat']['object'])) {
             $o = $map['thermostat']['object'];
-            self::sg($o . '.relay_readonly', 1);
+            // relay_readonly: in AUTO the core thermostat must only display (1);
+            // in MANUAL the user drives relay_status / currentTargetValue (0).
+            self::sg($o . '.relay_readonly', $manual ? 0 : 1);
+            // value = current temperature: always published (it is telemetry).
             if ($snapshot['temp_upper'] !== null) {
                 self::sgChanged($o . '.value', $snapshot['temp_upper']);
             }
-            if ($snapshot['heating'] !== null) {
-                self::sgChanged($o . '.relay_status', $snapshot['heating'] ? 1 : 0);
-            }
-            // Target shown = planned target if any, else requested target.
-            $target = null;
-            if (isset($decision['target_c']) && $decision['target_c'] !== null) {
-                $target = $decision['target_c'];
-            }
-            if ($target !== null) {
-                self::sgChanged($o . '.currentTargetValue', $target);
+            // In MANUAL do NOT overwrite relay_status / currentTargetValue:
+            // those are the user's command inputs (we READ them instead).
+            if (!$manual) {
+                if ($snapshot['heating'] !== null) {
+                    self::sgChanged($o . '.relay_status', $snapshot['heating'] ? 1 : 0);
+                }
+                $target = null;
+                if (isset($decision['target_c']) && $decision['target_c'] !== null) {
+                    $target = $decision['target_c'];
+                }
+                if ($target !== null) {
+                    self::sgChanged($o . '.currentTargetValue', $target);
+                }
             }
         }
         // Temperature lower sensor.
@@ -293,34 +337,35 @@ class SimpleDevices
     }
 
     /**
-     * Read a target-temperature command issued from the native Devices UI.
-     * The Devices thermostat writes currentTargetValue; we compare it to the
-     * last value we published and, if the user changed it, return the new
-     * target so the caller can send it through the guarded REST path.
-     *
-     * Returns null if no new command, or a float target (clamped 40..80).
+     * Read the MANUAL command from the Simple Device thermostat: the user's
+     * relay_status (1 = heat, 0 = off) and currentTargetValue (°C). Used only
+     * while automation is OFF. Returns array(relay(0|1|null), target(float|null)).
      */
-    public static function readTargetCommand($map, $lastPublishedTarget)
+    public static function readManualCommand($map)
     {
+        $out = array('relay' => null, 'target' => null);
         if (!self::available() || empty($map['thermostat']['object'])) {
-            return null;
+            return $out;
         }
         $o = $map['thermostat']['object'];
-        $cur = self::gg($o . '.currentTargetValue');
-        if ($cur === null || $cur === '' || !is_numeric($cur)) {
-            return null;
+        $rs = self::gg($o . '.relay_status');
+        if ($rs !== null && $rs !== '') {
+            $out['relay'] = self::truthyNum($rs) ? 1 : 0;
         }
-        $cur = (float) $cur;
-        if ($lastPublishedTarget !== null && abs($cur - (float) $lastPublishedTarget) < 0.01) {
-            return null; // unchanged -> not a user command
+        $tv = self::gg($o . '.currentTargetValue');
+        if ($tv !== null && $tv !== '' && is_numeric($tv)) {
+            $t = (float) $tv;
+            if ($t < 40.0) { $t = 40.0; }
+            if ($t > 80.0) { $t = 80.0; }
+            $out['target'] = $t;
         }
-        if ($cur < 40.0) {
-            $cur = 40.0;
-        }
-        if ($cur > 80.0) {
-            $cur = 80.0;
-        }
-        return $cur;
+        return $out;
+    }
+
+    private static function truthyNum($v)
+    {
+        $s = strtolower(trim((string) $v));
+        return in_array($s, array('1', 'on', 'true', 'yes'), true);
     }
 
     // --- helpers -------------------------------------------------------------

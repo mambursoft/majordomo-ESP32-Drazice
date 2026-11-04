@@ -632,6 +632,7 @@
     [#if PROVISION_KEY="SD_ALL_LINKED"#]<div class="alert alert-info"><#LANG_DS_SD_ALL_LINKED#></div>[#endif#]
     [#if PROVISION_KEY="SD_PROVISION_FAIL"#]<div class="alert alert-danger"><#LANG_DS_SD_PROVISION_FAIL#></div>[#endif#]
     [#if PROVISION_KEY="SD_UNAVAILABLE"#]<div class="alert alert-danger"><#LANG_DS_SD_UNAVAILABLE#></div>[#endif#]
+    [#if PROVISION_KEY="SD_REMOVED"#]<div class="alert alert-success"><#LANG_DS_SD_REMOVED#></div>[#endif#]
   [#endif#]
 
   <!-- Link status of every simple device; the create button is offered only
@@ -658,6 +659,12 @@
   [#else#]
     <p class="text-muted"><span class="glyphicon glyphicon-ok"></span> <#LANG_DS_SD_ALL_LINKED#></p>
   [#endif#]
+
+  <!-- Delete the created devices (to re-create after the property set changed). -->
+  <div style="margin-bottom:10px;">
+    <button class="btn btn-default btn-sm" type="button" data-ds-op="remove_simple_devices"[#if SIMPLE_DEVICES_AVAILABLE="0"#] disabled[#endif#]><span class="glyphicon glyphicon-trash"></span> <#LANG_DS_SD_REMOVE#></button>
+    <span class="ds-help"><#LANG_DS_SD_REMOVE_HINT#></span>
+  </div>
 
   <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SIMPLE_DEVICES_ENABLED">
@@ -720,6 +727,32 @@
     <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="1"><#LANG_DS_HDO_BTN_ON#></button>
     <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="0"><#LANG_DS_HDO_BTN_OFF#></button>
   </div>
+
+  <hr>
+  <!-- (e2) Event handler -->
+  <h4><span class="glyphicon glyphicon-bell"></span> <#LANG_DS_EVT_TITLE#></h4>
+  <p class="text-muted"><#LANG_DS_EVT_INTRO#></p>
+  <form method="post" action="?tab=advanced">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="EVENT_ON_HEATING,EVENT_ON_STATUS,EVENT_ON_MODE,EVENT_ON_TARIFF,EVENT_ON_POWER,EVENT_ON_TEMP_STEP">
+    <div class="form-group"><label><#LANG_DS_EVT_HANDLER#></label>
+      <input class="form-control" name="EVENT_HANDLER" value="[#CFG_EVENT_HANDLER#]" list="ds-handlers" autocomplete="off" placeholder="script:drazice_event">
+      <span class="ds-help"><#LANG_DS_H_EVT_HANDLER#></span>
+    </div>
+    <div class="row">
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_HEATING" value="1" [#if CFG_EVENT_ON_HEATING="1"#]checked[#endif#]> <#LANG_DS_EVT_HEATING#></label></div>
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_STATUS" value="1" [#if CFG_EVENT_ON_STATUS="1"#]checked[#endif#]> <#LANG_DS_EVT_STATUS#></label></div>
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_MODE" value="1" [#if CFG_EVENT_ON_MODE="1"#]checked[#endif#]> <#LANG_DS_EVT_MODE#></label></div>
+    </div>
+    <div class="row">
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_TARIFF" value="1" [#if CFG_EVENT_ON_TARIFF="1"#]checked[#endif#]> <#LANG_DS_EVT_TARIFF#></label></div>
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_POWER" value="1" [#if CFG_EVENT_ON_POWER="1"#]checked[#endif#]> <#LANG_DS_EVT_POWER#></label></div>
+      <div class="col-sm-4 checkbox"><label><input type="checkbox" name="EVENT_ON_TEMP_STEP" value="1" [#if CFG_EVENT_ON_TEMP_STEP="1"#]checked[#endif#]> <#LANG_DS_EVT_TEMP#></label></div>
+    </div>
+    <div class="row">
+      <div class="col-sm-4 form-group"><label><#LANG_DS_EVT_TEMP_STEP#></label><input class="form-control" type="number" min="1" max="40" name="EVENT_TEMP_STEP_C" value="[#CFG_EVENT_TEMP_STEP_C#]"></div>
+    </div>
+    <button class="btn btn-primary" type="submit"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
+  </form>
 
   <hr>
   <!-- (f) Scene builder -->

@@ -35,7 +35,7 @@ use DraziceSmart\SceneBuilder;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.11.0';
+    const MODULE_VERSION = '1.13.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -344,6 +344,17 @@ class drazice_smart extends module
             'PRESENCE_TOO_LONG_AFTER_S' => 1200, // "too_long" threshold
             'PRESENCE_RENOTIFY_EVERY_S' => 0,
             'PRESENCE_HANDLER'     => '',   // MajorDoMo method to call (announce)
+            // Event handlers: a script/method called when a value CHANGES.
+            // Format: "script:Title" or "Object.method"; empty = no handler.
+            // The handler receives $params: event, value, prev (globals too).
+            'EVENT_HANDLER'        => '',   // single handler for all change events
+            'EVENT_ON_HEATING'     => 1,    // fire on heating 0<->1
+            'EVENT_ON_STATUS'      => 1,    // fire on controlState heat<->hold
+            'EVENT_ON_MODE'        => 1,    // fire on reported mode change
+            'EVENT_ON_TARIFF'      => 1,    // fire on tariff_active change
+            'EVENT_ON_POWER'       => 1,    // fire on power source change
+            'EVENT_ON_TEMP_STEP'   => 0,    // fire on temp change >= EVENT_TEMP_STEP_C
+            'EVENT_TEMP_STEP_C'    => 5,    // temperature change threshold for an event
             // surplus latch state (planner hysteresis)
             'SURPLUS_LATCHED'      => 0,
             // charge priority ("battery first"): automatic heating waits until
@@ -367,6 +378,17 @@ class drazice_smart extends module
             'HDO_CONTROL_DRY_RUN'  => 1,
             'HDO_DESIRED'          => 1, // last desired HDO state the module computed
             'HDO_OVERRIDE_LATCHED' => 0, // hysteresis latch for the solar override
+            // Low-traffic policy: read the ESP rarely in the background, write to
+            // the boiler ONLY on a real change of intent (with a cooldown), and
+            // renew the lease far less often than once per cycle.
+            'CYCLE_READ_INTERVAL_S' => 60,  // background GET /state cadence (UI poll uses POLL_INTERVAL_S)
+            'WRITE_COOLDOWN_S'      => 300, // min seconds between identical writes of the same intent
+            'LEASE_RENEW_EVERY_S'   => 90,  // renew lease at ~half of LEASE_TTL_S, not every cycle
+            '_LAST_APPLIED_MODE'    => '',  // last mode we actually sent
+            '_LAST_APPLIED_TARGET'  => '',  // last target we actually sent
+            '_LAST_APPLIED_UTC'     => 0,   // when we last sent a boiler write
+            '_LAST_LEASE_UTC'       => 0,   // when we last renewed the lease
+            '_LAST_READ_UTC'        => 0,   // when the cycle last fetched /state
             // Single boiler+ESP object (all properties, presence sessions/events).
             'BOILER_OBJECT'        => 'EspBoiler',
             // Simple Devices ("Простые устройства") integration — OFF by default.
@@ -630,6 +652,10 @@ EOD;
         $energyJson    = Transport::entity($map, 'sensor', 'Boiler Energy');
         $cooldownJson  = Transport::entity($map, 'sensor', 'Boiler Cooldown Remaining');
         $guardStateJson = Transport::entity($map, 'text_sensor', 'Boiler Guard State');
+        // Actual mode/setpoint the boiler reports (read-only mirrors). Used to
+        // make writes idempotent WITHOUT an extra GET: we already have them here.
+        $modeActualJson = Transport::entity($map, 'text_sensor', 'Boiler Mode');
+        $setpointActualJson = Transport::entity($map, 'sensor', 'Boiler Setpoint');
 
         $httpAvailable = ($tempUpperJson !== null) || ($guardStateJson !== null);
 
@@ -701,6 +727,9 @@ EOD;
             'charge_released_latched' => !empty($this->config['CHARGE_RELEASED_LATCHED']),
             'solar_surplus_enabled' => !empty($this->config['SOLAR_SURPLUS_ENABLED']),
             'hdo_override_latched' => !empty($this->config['HDO_OVERRIDE_LATCHED']),
+            // Actual boiler-reported mode/setpoint (for idempotent writes).
+            'reported_mode'   => Transport::stringValue($modeActualJson),
+            'reported_target' => Transport::numericValue($setpointActualJson),
         );
     }
 
@@ -735,9 +764,30 @@ EOD;
     public function cycleStep()
     {
         $this->getConfig();
-        // ONE forced GET /state per cycle (was ~27 per-entity GETs). A forced
-        // fetch also keeps the DB cache warm for admin()/usual()/AJAX reads.
-        $state = $this->refreshState(true, true);
+        $now = time();
+
+        // LOW-TRAFFIC READ: fetch /state from the ESP only every
+        // CYCLE_READ_INTERVAL_S (default 60s), with exponential backoff when the
+        // ESP is unreachable. Between fetches we reuse the DB cache, so the
+        // planner still runs every cycle but the ESP is not polled every ~15s.
+        $readInterval = isset($this->config['CYCLE_READ_INTERVAL_S']) ? (int) $this->config['CYCLE_READ_INTERVAL_S'] : 60;
+        if ($readInterval < 15) {
+            $readInterval = 15;
+        }
+        $lastRead = isset($this->config['_LAST_READ_UTC']) ? (int) $this->config['_LAST_READ_UTC'] : 0;
+        $backoff = isset($this->config['_READ_BACKOFF_S']) ? (int) $this->config['_READ_BACKOFF_S'] : 0;
+        $due = ($now - $lastRead) >= max($readInterval, $backoff);
+
+        if ($due) {
+            $state = $this->refreshState(true, true); // forced GET /state
+            $this->config['_LAST_READ_UTC'] = time();
+            // Backoff on failure: 2x up to 4x the interval; reset on success.
+            $ok = is_array($state) && !empty($state['map']);
+            $this->config['_READ_BACKOFF_S'] = $ok ? 0 : min($readInterval * 4, max($readInterval * 2, $backoff * 2));
+            $this->saveConfig();
+        } else {
+            $state = $this->refreshState(false); // serve from cache, no ESP hit
+        }
         $map = $this->freshMapOrEmpty($state);
         $snapshot = $this->buildSnapshotFromState($map, time());
         $decision = Planner::decide($snapshot, $this->plannerConfig());
@@ -773,25 +823,40 @@ EOD;
         // Mirror key values into MajorDoMo properties for dashboards/linked props.
         $this->publishProperties($snapshot, $decision, $this->diagFromState($map));
 
-        // Renew lease if automation is enabled and ESP reachable.
+        // Renew the lease at most every LEASE_RENEW_EVERY_S (not every cycle).
         if (!empty($this->config['AUTOMATION_ENABLED']) && !empty($snapshot['http_available'])) {
-            $t = $this->makeTransport();
-            $t->pressButton('Boiler Lease Renew');
+            $leaseEvery = isset($this->config['LEASE_RENEW_EVERY_S']) ? (int) $this->config['LEASE_RENEW_EVERY_S'] : 90;
+            if ($leaseEvery < 15) {
+                $leaseEvery = 15;
+            }
+            $lastLease = isset($this->config['_LAST_LEASE_UTC']) ? (int) $this->config['_LAST_LEASE_UTC'] : 0;
+            if ((time() - $lastLease) >= $leaseEvery) {
+                $this->makeTransport()->pressButton('Boiler Lease Renew');
+                $this->config['_LAST_LEASE_UTC'] = time();
+                $this->saveConfig();
+            }
         }
 
-        // Apply the decision when automation is ON and not dry-run.
+        // Apply the decision when automation is ON and not dry-run. Both heat
+        // and hold go through applyBoilerState(), which writes ONLY when the
+        // boiler's actual mode/target differs from the desired one AND the same
+        // intent was not just written (WRITE_COOLDOWN_S). In the steady state
+        // this sends NOTHING to the boiler.
         if (!empty($this->config['AUTOMATION_ENABLED']) && empty($this->config['DRY_RUN'])) {
             if (!empty($decision['allowed']) && $decision['action'] === 'heat') {
-                $this->applyDecision($decision);
+                $mode = ($decision['mode'] !== null) ? $decision['mode'] : 'MANUAL';
+                $this->applyBoilerState($snapshot, $mode, (int) round($decision['target_c']), $decision['reason']);
             } else {
-                // "hold" is NOT passive: if the boiler is actually heating (or
-                // not already in a quiet mode) while the policy says DO NOT
-                // heat, actively push the boiler to a non-heating state. STOP
-                // is unavailable, so the strongest safe action is ANTIFREEZE
-                // (freeze protection) + target to the minimum. This is what
-                // actually stops a SMART-mode heat the module did not start.
-                $this->applyHold($snapshot, $decision);
+                // Active hold: desired = ANTIFREEZE + 40 (STOP unavailable).
+                $mode = (isset($decision['mode']) && $decision['mode'] !== null) ? $decision['mode'] : 'ANTIFREEZE';
+                $this->applyBoilerState($snapshot, $mode, 40, $decision['reason']);
             }
+        } elseif (empty($this->config['AUTOMATION_ENABLED']) && empty($this->config['DRY_RUN'])
+            && !empty($this->config['SIMPLE_DEVICES_ENABLED'])) {
+            // MANUAL OVERRIDE: automation is off, so the user drives the boiler
+            // through the Simple Device thermostat (relay_status 1/0 +
+            // currentTargetValue), exactly like any other MajorDoMo thermostat.
+            $this->applyManualOverride($snapshot);
         }
 
         // HDO solar-override control (independent of the heat decision).
@@ -841,6 +906,24 @@ EOD;
             'key' => ($created > 0 ? 'SD_PROVISIONED' : 'SD_ALL_LINKED'));
     }
 
+    /**
+     * Remove the created simple devices (for re-creation after the object's
+     * property set changed). Switches the sync OFF so nothing writes to the
+     * now-absent devices. Returns array(report, kind, key).
+     */
+    private function removeSimpleDevices()
+    {
+        if (!SimpleDevices::available()) {
+            return array('report' => array(), 'kind' => 'danger', 'key' => 'SD_UNAVAILABLE');
+        }
+        $res = SimpleDevices::remove($this->simpleDevicesMap());
+        $report = isset($res['report']) && is_array($res['report']) ? $res['report'] : array();
+        // Turn the integration off: the devices are gone, so don't keep syncing.
+        $this->config['SIMPLE_DEVICES_ENABLED'] = 0;
+        $this->saveConfig();
+        return array('report' => $report, 'kind' => 'success', 'key' => 'SD_REMOVED');
+    }
+
     /** Resolve the Simple Devices map (admin JSON override or default). */
     private function simpleDevicesMap()
     {
@@ -864,28 +947,37 @@ EOD;
             return;
         }
         $map = $this->simpleDevicesMap();
+        // In MANUAL mode (automation off) the thermostat's relay_status /
+        // currentTargetValue are the user's command inputs, read by
+        // applyManualOverride(); publish() must NOT overwrite them. In AUTO the
+        // module mirrors state into them.
+        $manual = empty($this->config['AUTOMATION_ENABLED']);
+        SimpleDevices::publish($map, $snapshot, $decision, $manual);
+    }
 
-        // 1. A target change made in the Devices thermostat UI -> guarded write.
-        $last = ($this->config['_LAST_PUBLISHED_TARGET'] === '' ? null : (float) $this->config['_LAST_PUBLISHED_TARGET']);
-        $cmd = SimpleDevices::readTargetCommand($map, $last);
-        if ($cmd !== null) {
-            $t = $this->makeTransport();
-            $res = $t->postSet('number', 'Boiler Requested Target', (int) round($cmd));
-            Repository::saveCommand(array(
-                'ts_utc' => time(), 'command_id' => 'simpledev', 'kind' => 'target',
-                'payload' => (string) $cmd,
-                'status' => ($res !== null ? 'sent' : 'failed'),
-                'detail' => ($res === null ? json_encode($t->getLastError()) : 'from Simple Devices UI'),
-            ));
+    /**
+     * MANUAL override via the Simple Device thermostat (automation OFF).
+     * The user sets relay_status (1 heat / 0 off) and currentTargetValue; we
+     * translate that into a boiler state through the SAME guarded, low-traffic
+     * path (applyBoilerState): respects cooldown, writes only on change.
+     *   relay 1 -> MANUAL + currentTargetValue (default = comfort minimum)
+     *   relay 0 -> ANTIFREEZE + 40
+     */
+    private function applyManualOverride($snapshot)
+    {
+        if (empty($snapshot['http_available']) || !SimpleDevices::available()) {
+            return;
         }
-
-        // 2. Publish current state into the simple-device objects.
-        SimpleDevices::publish($map, $snapshot, $decision);
-
-        // Remember the target we published so a later UI change is detected.
-        if (isset($decision['target_c']) && $decision['target_c'] !== null) {
-            $this->config['_LAST_PUBLISHED_TARGET'] = (string) $decision['target_c'];
-            $this->saveConfig();
+        $cmd = SimpleDevices::readManualCommand($this->simpleDevicesMap());
+        if ($cmd['relay'] === null) {
+            return; // no command yet (device never toggled)
+        }
+        if ($cmd['relay'] === 1) {
+            $target = ($cmd['target'] !== null) ? (int) round($cmd['target'])
+                : (int) round(isset($this->config['COMFORT_MIN_C']) ? $this->config['COMFORT_MIN_C'] : 45);
+            $this->applyBoilerState($snapshot, 'MANUAL', $target, 'manual_on');
+        } else {
+            $this->applyBoilerState($snapshot, 'ANTIFREEZE', 40, 'manual_off');
         }
     }
 
@@ -929,62 +1021,80 @@ EOD;
     }
 
     /**
-     * Active "do not heat": the policy decided hold, but the boiler may still
-     * be heating on its own (SMART mode). Since STOP is unavailable, request
-     * ANTIFREEZE + minimum target to make it stop. Idempotent and quiet:
-     *   - only acts while the boiler is heating OR not already in ANTIFREEZE;
-     *   - never fights the boiler's own cooldown (guard handles that);
-     *   - the specific cooldown decision already carries mode ANTIFREEZE, so
-     *     it flows here too.
-     * The decision's mode (if any, e.g. vacation/cooldown -> ANTIFREEZE) wins;
-     * otherwise we default to ANTIFREEZE.
+     * Apply a desired boiler state (mode + target) with MINIMAL traffic.
+     * Writes to the boiler ONLY when ALL of these hold:
+     *   - the ESP is reachable;
+     *   - the boiler's ACTUAL reported mode/target (from the snapshot we already
+     *     fetched — no extra GET) differs from the desired one;
+     *   - we did not just send the SAME intent within WRITE_COOLDOWN_S.
+     * Otherwise it sends nothing. This stops the "flash 40 every cycle" problem
+     * and keeps the boiler quiet in the steady state. STOP is unavailable, so a
+     * "do not heat" decision arrives here as ANTIFREEZE + 40.
+     *
+     * @param array  $snapshot current snapshot (has reported_mode/reported_target)
+     * @param string $mode     desired mode (ANTIFREEZE/SMART/PROG/MANUAL)
+     * @param int    $target   desired setpoint °C (clamped 40..80)
+     * @param string $reason   planner reason (for the command log)
      */
-    private function applyHold($snapshot, $decision)
+    private function applyBoilerState($snapshot, $mode, $target, $reason)
     {
         if (empty($snapshot['http_available'])) {
             return;
         }
-        $heating = isset($snapshot['heating']) ? $snapshot['heating'] : null;
-        $reportedMode = isset($snapshot['reported_mode']) ? (string) $snapshot['reported_mode'] : '';
-        $targetMode = (isset($decision['mode']) && $decision['mode'] !== null) ? $decision['mode'] : 'ANTIFREEZE';
+        $target = (int) $target;
+        if ($target < 40) { $target = 40; }
+        if ($target > 80) { $target = 80; }
 
-        // Nothing to do if the boiler is already quiet: not heating AND already
-        // in the target quiet mode. Avoids a BLE write every cycle.
-        $alreadyQuiet = ($heating === false) && ($reportedMode === $targetMode);
-        if ($alreadyQuiet) {
+        $curMode = isset($snapshot['reported_mode']) ? (string) $snapshot['reported_mode'] : '';
+        $curTargetRaw = isset($snapshot['reported_target']) ? $snapshot['reported_target'] : null;
+        $curTarget = ($curTargetRaw === null) ? null : (int) round($curTargetRaw);
+
+        // Desired already in effect? Nothing to do. (Unknown current target is
+        // treated as "matches" to avoid a write on missing telemetry.)
+        $modeMatches = ($curMode === '' ) ? false : ($curMode === $mode);
+        $targetMatches = ($curTarget === null) ? true : ($curTarget === $target);
+        if ($modeMatches && $targetMatches) {
             return;
         }
 
-        $t = $this->makeTransport();
-        // Mode first (ANTIFREEZE stops normal heating), then floor the target.
-        $t->postSet('select', 'Boiler Requested Mode', $targetMode);
-        $res = $t->postSet('number', 'Boiler Requested Target', 40);
-        Repository::saveCommand(array(
-            'ts_utc' => time(), 'command_id' => uniqid('hold_', true), 'kind' => 'hold',
-            'payload' => $targetMode . ' 40',
-            'status' => ($res !== null ? 'sent' : 'failed'),
-            'detail' => ($res === null ? json_encode($t->getLastError())
-                : ('active hold: ' . (isset($decision['reason']) ? $decision['reason'] : '') . ' (heating=' . ($heating ? '1' : '0') . ')')),
-        ));
-        StateCache::markDirty();
-    }
+        // Write cooldown: do not resend the SAME intent within WRITE_COOLDOWN_S,
+        // even if the boiler has not reflected it yet (avoids dribbling writes
+        // while the boiler catches up or briefly disagrees).
+        $cooldown = isset($this->config['WRITE_COOLDOWN_S']) ? (int) $this->config['WRITE_COOLDOWN_S'] : 300;
+        $lastMode = isset($this->config['_LAST_APPLIED_MODE']) ? (string) $this->config['_LAST_APPLIED_MODE'] : '';
+        $lastTarget = (isset($this->config['_LAST_APPLIED_TARGET']) && $this->config['_LAST_APPLIED_TARGET'] !== '')
+            ? (int) $this->config['_LAST_APPLIED_TARGET'] : null;
+        $lastUtc = isset($this->config['_LAST_APPLIED_UTC']) ? (int) $this->config['_LAST_APPLIED_UTC'] : 0;
+        $sameIntent = ($lastMode === $mode) && ($lastTarget === $target);
+        if ($sameIntent && (time() - $lastUtc) < $cooldown) {
+            return; // throttled: identical intent sent recently
+        }
 
-    private function applyDecision($decision)
-    {
         $t = $this->makeTransport();
-        $commandId = uniqid('cmd_', true);
-        if ($decision['mode'] !== null) {
-            $t->postSet('select', 'Boiler Requested Mode', $decision['mode']);
+        $sent = null;
+        if (!$modeMatches) {
+            $sent = $t->postSet('select', 'Boiler Requested Mode', $mode);
         }
-        if ($decision['target_c'] !== null) {
-            $res = $t->postSet('number', 'Boiler Requested Target', (int) round($decision['target_c']));
-            Repository::saveCommand(array(
-                'ts_utc' => time(), 'command_id' => $commandId, 'kind' => 'target',
-                'payload' => (string) $decision['target_c'],
-                'status' => ($res !== null ? 'sent' : 'failed'),
-                'detail' => ($res === null ? json_encode($t->getLastError()) : ''),
-            ));
+        if (!$targetMatches) {
+            $sent = $t->postSet('number', 'Boiler Requested Target', $target);
         }
+
+        $this->config['_LAST_APPLIED_MODE'] = $mode;
+        $this->config['_LAST_APPLIED_TARGET'] = (string) $target;
+        $this->config['_LAST_APPLIED_UTC'] = time();
+        $this->saveConfig();
+
+        Repository::saveCommand(array(
+            'ts_utc' => time(), 'command_id' => uniqid('set_', true), 'kind' => 'apply',
+            'payload' => $mode . ' ' . $target,
+            'status' => ($sent !== null ? 'sent' : 'failed'),
+            'detail' => ($sent === null ? json_encode($t->getLastError())
+                : ($reason . ' (was ' . ($curMode === '' ? '?' : $curMode) . '/' . ($curTarget === null ? '?' : $curTarget) . ')')),
+        ));
+        // Schedule ONE read-back soon (not every cycle): clear last-read so the
+        // next cycle fetches to confirm the write took effect.
+        $this->config['_LAST_READ_UTC'] = 0;
+        $this->saveConfig();
         StateCache::markDirty();
     }
 
@@ -1048,6 +1158,85 @@ EOD;
         BoilerObject::set($o, 'reportedTarget', $diag['REQ_TARGET']);
         BoilerObject::set($o, 'boilerVersion',  $diag['BOILER_VER']);
         BoilerObject::set($o, 'boilerName',     $diag['BOILER_NAME']);
+
+        // Fire change-event handlers (heating/status/mode/tariff/power/temp).
+        $this->fireEvents($s, $d, $diag);
+    }
+
+    /**
+     * Call the configured EVENT_HANDLER when a watched value CHANGES. Each
+     * event is compared against the previously-seen value (persisted in
+     * _EVT_* config keys) so the handler fires once per transition, not every
+     * cycle. The handler ("script:Title" or "Object.method") receives
+     * $params = array('event'=>..., 'value'=>..., 'prev'=>...). No handler set
+     * or an unchanged value => nothing happens.
+     */
+    private function fireEvents($s, $d, $diag)
+    {
+        $handler = isset($this->config['EVENT_HANDLER']) ? trim((string) $this->config['EVENT_HANDLER']) : '';
+        if ($handler === '') {
+            return;
+        }
+        $events = array();
+        $watch = function ($enabled, $event, $cur, $key) use (&$events) {
+            if (empty($enabled)) {
+                return;
+            }
+            $prev = isset($this->config[$key]) ? $this->config[$key] : null;
+            $curN = ($cur === null) ? '' : (string) $cur;
+            if ((string) $prev !== $curN) {
+                $events[] = array('event' => $event, 'value' => $curN, 'prev' => (string) $prev);
+                $this->config[$key] = $curN;
+            }
+        };
+
+        $watch($this->config['EVENT_ON_HEATING'], 'heating',
+            ($s['heating'] === null ? null : ($s['heating'] ? 1 : 0)), '_EVT_HEATING');
+        $watch($this->config['EVENT_ON_STATUS'], 'status', $d['action'], '_EVT_STATUS');
+        $watch($this->config['EVENT_ON_MODE'], 'mode', $diag['REQ_MODE'], '_EVT_MODE');
+        $watch($this->config['EVENT_ON_TARIFF'], 'tariff',
+            (!empty($s['tariff_active']) ? 1 : 0), '_EVT_TARIFF');
+        $watch($this->config['EVENT_ON_POWER'], 'power', $s['power_source'], '_EVT_POWER');
+
+        // Temperature: fire only when it moved by >= EVENT_TEMP_STEP_C.
+        if (!empty($this->config['EVENT_ON_TEMP_STEP']) && $s['temp_upper'] !== null) {
+            $step = isset($this->config['EVENT_TEMP_STEP_C']) ? (float) $this->config['EVENT_TEMP_STEP_C'] : 5.0;
+            $prevT = isset($this->config['_EVT_TEMP']) && $this->config['_EVT_TEMP'] !== '' ? (float) $this->config['_EVT_TEMP'] : null;
+            if ($prevT === null || abs((float) $s['temp_upper'] - $prevT) >= $step) {
+                $events[] = array('event' => 'temperature', 'value' => (string) $s['temp_upper'],
+                    'prev' => ($prevT === null ? '' : (string) $prevT));
+                $this->config['_EVT_TEMP'] = (string) $s['temp_upper'];
+            }
+        }
+
+        if (empty($events)) {
+            return;
+        }
+        $this->saveConfig();
+        foreach ($events as $ev) {
+            $this->runHandler($handler, $ev);
+        }
+    }
+
+    /**
+     * Invoke a handler string: "script:Title" runs that user script, otherwise
+     * "Object.method" calls that object method. $params carries event/value/prev.
+     * Defensive: silently skipped if the MajorDoMo runtime is not present.
+     */
+    private function runHandler($handler, array $params)
+    {
+        if (strpos($handler, 'script:') === 0) {
+            $title = substr($handler, 7);
+            if (function_exists('runScript')) {
+                runScript($title, $params);
+            }
+        } else {
+            if (function_exists('callMethod')) {
+                callMethod($handler, $params);
+            } elseif (function_exists('callMethodSafe')) {
+                callMethodSafe($handler, $params);
+            }
+        }
     }
 
     /**
@@ -2091,6 +2280,11 @@ EOD;
                 break;
             case 'provision_simple_devices':
                 $pr = $this->provisionSimpleDevices();
+                $result = array('report' => $pr['report'], 'reload' => true);
+                $banner = $this->banner($pr['kind'], $pr['key']);
+                break;
+            case 'remove_simple_devices':
+                $pr = $this->removeSimpleDevices();
                 $result = array('report' => $pr['report'], 'reload' => true);
                 $banner = $this->banner($pr['kind'], $pr['key']);
                 break;

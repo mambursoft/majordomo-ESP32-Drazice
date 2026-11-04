@@ -492,6 +492,22 @@ $dictionary = array(
     'DS_SCENE_OK'         => 'Scene created/refreshed.',
     'DS_SCENE_FAIL'       => 'Could not create the scene (objects/DB runtime unavailable).',
     'DS_SD_DIAG_MISSING'  => 'Missing',
+
+    // 1.13.0: remove simple devices, manual override, event handlers
+    'DS_SD_REMOVE'        => 'Delete simple devices',
+    'DS_SD_REMOVE_HINT'   => 'Removes the created devices so you can re-create them after the object property set changed. Turns the sync off; objects themselves are kept.',
+    'DS_SD_REMOVED'       => 'Simple devices deleted. Press "Create" to re-create them.',
+    'DS_EVT_TITLE'        => 'Event handlers',
+    'DS_EVT_INTRO'        => 'Call a script or object method when a value changes (heating, status, mode, tariff, power source, temperature). Fires once per change, not every cycle.',
+    'DS_EVT_HANDLER'      => 'Handler (script:Title or Object.method)',
+    'DS_H_EVT_HANDLER'    => 'Receives params: event (heating/status/mode/tariff/power/temperature), value, prev. Leave empty to disable.',
+    'DS_EVT_HEATING'      => 'On heating 0↔1',
+    'DS_EVT_STATUS'       => 'On decision heat↔hold',
+    'DS_EVT_MODE'         => 'On boiler mode change',
+    'DS_EVT_TARIFF'       => 'On tariff change',
+    'DS_EVT_POWER'        => 'On power source change',
+    'DS_EVT_TEMP'         => 'On temperature step',
+    'DS_EVT_TEMP_STEP'    => 'Temperature step for an event, °C',
 );
 
 foreach ($dictionary as $k => $v) {
