@@ -72,6 +72,16 @@ text_sensor:
     id: boiler_guard_reason
     update_interval: 10s
     lambda: 'return id(boiler_guard_component).get_reason_text();'
+  # READ-ONLY mirror of the mode the boiler itself reports (the direct select
+  # stays internal so nothing can bypass the guard). Empty until reported.
+  - platform: template
+    name: "Boiler Mode"
+    id: boiler_mode_actual
+    update_interval: 30s
+    lambda: |-
+      const std::string &m = id(boiler_mode).state;
+      if (m.empty()) return {};
+      return m;
 
 sensor:
   - platform: template
@@ -88,6 +98,18 @@ sensor:
     accuracy_decimals: 0
     update_interval: 10s
     lambda: 'return (float) id(boiler_guard_component).get_cooldown_remaining_s();'
+  # READ-ONLY mirror of the setpoint the boiler itself reports (the direct
+  # climate entity stays internal). NaN until reported -> no state (REST null).
+  - platform: template
+    name: "Boiler Setpoint"
+    id: boiler_setpoint_actual
+    unit_of_measurement: "°C"
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: |-
+      float t = id(boiler_thermostat).target_temperature;
+      if (std::isnan(t)) return {};
+      return t;
   - platform: template
     name: "Boiler Lease Remaining"
     id: boiler_lease_remaining_s

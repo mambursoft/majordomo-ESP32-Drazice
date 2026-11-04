@@ -1,5 +1,17 @@
 <!-- Drazice SMART Admin. Uses the MajorDoMo template parser tags (variable, if/else/endif, begin/end loops). Do not write literal tag syntax in comments: the parser would execute it. -->
-<div class="container-fluid" style="padding-top:15px;">
+<style>
+  .ds-root code { color:#444; background:#f2f3f5; }
+  .ds-root .form-inline .form-control { display:inline-block; width:auto; max-width:300px; vertical-align:middle; }
+  .ds-root .form-inline select.form-control { max-width:360px; }
+  .ds-root .ds-help { display:block; margin-top:4px; color:#777; font-size:12px; font-weight:normal; }
+  .ds-root .ds-st { display:inline-block; padding:1px 8px; border-radius:3px; font-weight:600; font-size:90%; }
+  .ds-root .ds-st-ok { background:#dff0d8; color:#2b632b; }
+  .ds-root .ds-st-warn { background:#fcf8e3; color:#7a5c1e; }
+  .ds-root .ds-st-bad { background:#f2dede; color:#a94442; }
+  .ds-root .ds-st-muted { background:#eef1f4; color:#4a5560; }
+  .ds-root .ds-st-plain { background:none; padding:0; font-weight:normal; }
+</style>
+<div class="container-fluid ds-root" style="padding-top:15px;">
 
   <div class="row" style="margin-bottom:12px;">
     <div class="col-xs-9">
@@ -98,8 +110,8 @@
     <div class="panel-body">
       <div style="font-size:16px;margin-bottom:6px;" data-ds="decision_human">[#DECISION_HUMAN#]</div>
       <div class="text-muted" style="font-size:12px;">
-        <#LANG_DS_ST_DECISION#>: <code data-ds="decision_action">[#DECISION_ACTION#]</code> · <span data-ds="decision_reason">[#DECISION_REASON#]</span>
-        &nbsp;|&nbsp; <#LANG_DS_ST_GUARD#>: <code data-ds="guard_state">[#GUARD_STATE#]</code>
+        <#LANG_DS_ST_DECISION#>: <span class="ds-st ds-st-muted" data-ds-st="action" data-ds="decision_action">[#DECISION_ACTION#]</span> · <span class="text-muted" data-ds="decision_reason">[#DECISION_REASON#]</span>
+        &nbsp;|&nbsp; <#LANG_DS_ST_GUARD#>: <span class="ds-st ds-st-muted" data-ds-st="guard" data-ds="guard_state">[#GUARD_STATE#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: <span data-ds="cooldown_f">[#COOLDOWN_F#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: <span data-ds="energy_f">[#ENERGY_F#]</span>
       </div>
@@ -234,47 +246,72 @@
   [#if TAB="control"#]
   <p class="text-muted"><#LANG_DS_CTL_INTRO#></p>
   <div class="row">
-    <div class="col-md-6"><div class="panel panel-default"><div class="panel-body">
-      <form method="post" action="?tab=control" class="form-inline">
-        <input type="hidden" name="op" value="request_target"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <label><#LANG_DS_CTL_REQ_TARGET#></label>
-        <input class="form-control" type="number" min="40" max="80" name="value" value="55" style="width:90px;">
-        <button class="btn btn-primary" type="submit"><#LANG_DS_CTL_APPLY#></button>
-      </form>
-      <small class="text-muted"><#LANG_DS_CTL_RANGE_HINT#></small>
-      <hr>
-      <form method="post" action="?tab=control" class="form-inline">
-        <input type="hidden" name="op" value="request_mode"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <label><#LANG_DS_CTL_REQ_MODE#></label>
-        <select class="form-control" name="value">
-          <option>ANTIFREEZE</option><option>SMART</option><option>PROG</option><option>MANUAL</option>
-        </select>
-        <button class="btn btn-primary" type="submit"><#LANG_DS_CTL_APPLY#></button>
-      </form>
-      <small class="text-muted"><#LANG_DS_CTL_MODE_HINT#></small>
-    </div></div></div>
-    <div class="col-md-6"><div class="panel panel-default"><div class="panel-body">
-      <h4><#LANG_DS_CTL_BOOST#></h4>
-      <form method="post" action="?tab=control" class="form-inline">
-        <input type="hidden" name="op" value="boost"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <label><#LANG_DS_CTL_BOOST_TTL#></label>
-        <input class="form-control" type="number" name="ttl" value="1800" style="width:100px;">
-        <button class="btn btn-warning" type="submit"><#LANG_DS_CTL_BOOST_ON#></button>
-      </form>
-      <form method="post" action="?tab=control" style="margin-top:8px;">
-        <input type="hidden" name="op" value="cancel_boost"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_BOOST_OFF#></button>
-      </form>
-      <hr>
-      <form method="post" action="?tab=control" style="display:inline;">
-        <input type="hidden" name="op" value="release_ble"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RELEASE_BLE#></button>
-      </form>
-      <form method="post" action="?tab=control" style="display:inline;">
-        <input type="hidden" name="op" value="reconnect_ble"><input type="hidden" name="csrf" value="[#CSRF#]">
-        <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RECONNECT_BLE#></button>
-      </form>
-    </div></div></div>
+    <div class="col-md-6"><div class="panel panel-default">
+      <div class="panel-heading"><strong><#LANG_DS_CTL_TARGET_TITLE#></strong></div>
+      <div class="panel-body">
+        <p class="ds-help" style="margin-top:0;"><#LANG_DS_CTL_TARGET_HELP#></p>
+        <p style="font-size:12px;"><#LANG_DS_DG_BOILER_SETPOINT#>: <strong data-ds-dg="BOILER_SETPOINT">[#DG_BOILER_SETPOINT#]</strong> °C &nbsp;|&nbsp; <#LANG_DS_DG_REQ_TARGET#>: <span data-ds-dg="REQ_TARGET">[#DG_REQ_TARGET#]</span> °C</p>
+        <form method="post" action="?tab=control" class="form-inline">
+          <input type="hidden" name="op" value="request_target"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <label><#LANG_DS_CTL_REQ_TARGET#></label>
+          <input class="form-control" type="number" min="40" max="80" name="value" value="55" style="width:90px;">
+          <button class="btn btn-primary" type="submit"><#LANG_DS_CTL_APPLY#></button>
+        </form>
+        <span class="ds-help"><#LANG_DS_CTL_RANGE_HINT#></span>
+      </div>
+    </div></div>
+    <div class="col-md-6"><div class="panel panel-default">
+      <div class="panel-heading"><strong><#LANG_DS_CTL_MODE_TITLE#></strong></div>
+      <div class="panel-body">
+        <p style="font-size:12px;margin-top:0;"><#LANG_DS_DG_BOILER_MODE#>: <strong data-ds-dg="BOILER_MODE">[#DG_BOILER_MODE#]</strong> &nbsp;|&nbsp; <#LANG_DS_DG_REQ_MODE#>: <span data-ds-dg="REQ_MODE">[#DG_REQ_MODE#]</span></p>
+        <form method="post" action="?tab=control" class="form-inline">
+          <input type="hidden" name="op" value="request_mode"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <label><#LANG_DS_CTL_REQ_MODE#></label>
+          <select class="form-control" name="value">
+            <option value="SMART"><#LANG_DS_MODE_SMART#></option>
+            <option value="MANUAL"><#LANG_DS_MODE_MANUAL#></option>
+            <option value="PROG"><#LANG_DS_MODE_PROG#></option>
+            <option value="ANTIFREEZE"><#LANG_DS_MODE_ANTIFREEZE#></option>
+          </select>
+          <button class="btn btn-primary" type="submit"><#LANG_DS_CTL_APPLY#></button>
+        </form>
+        <span class="ds-help"><#LANG_DS_CTL_MODE_HINT#></span>
+      </div>
+    </div></div>
+  </div>
+  <div class="row">
+    <div class="col-md-6"><div class="panel panel-default">
+      <div class="panel-heading"><strong><#LANG_DS_CTL_BOOST#></strong></div>
+      <div class="panel-body">
+        <p class="ds-help" style="margin-top:0;"><#LANG_DS_CTL_BOOST_HELP#></p>
+        <form method="post" action="?tab=control" class="form-inline">
+          <input type="hidden" name="op" value="boost"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <label><#LANG_DS_CTL_BOOST_TTL#></label>
+          <input class="form-control" type="number" min="60" max="7200" name="ttl" value="1800" style="width:100px;">
+          <label class="checkbox-inline" style="margin-left:8px;"><input type="checkbox" name="allow_battery" value="1"> <#LANG_DS_CTL_BOOST_ALLOW_BAT#></label>
+          <button class="btn btn-warning" type="submit"><#LANG_DS_CTL_BOOST_ON#></button>
+        </form>
+        <form method="post" action="?tab=control" style="margin-top:8px;">
+          <input type="hidden" name="op" value="cancel_boost"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_BOOST_OFF#></button>
+        </form>
+      </div>
+    </div></div>
+    <div class="col-md-6"><div class="panel panel-default">
+      <div class="panel-heading"><strong><#LANG_DS_CTL_BLE_TITLE#></strong></div>
+      <div class="panel-body">
+        <form method="post" action="?tab=control" style="display:inline;">
+          <input type="hidden" name="op" value="release_ble"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RELEASE_BLE#></button>
+        </form>
+        <span class="ds-help"><#LANG_DS_CTL_RELEASE_HELP#></span>
+        <form method="post" action="?tab=control" style="display:inline-block;margin-top:8px;">
+          <input type="hidden" name="op" value="reconnect_ble"><input type="hidden" name="csrf" value="[#CSRF#]">
+          <button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RECONNECT_BLE#></button>
+        </form>
+        <span class="ds-help"><#LANG_DS_CTL_RECONNECT_HELP#></span>
+      </div>
+    </div></div>
   </div>
 
   <div class="panel panel-danger" style="border-width:2px;">
@@ -283,6 +320,7 @@
       <div class="alert alert-warning" style="font-size:12px;"><#LANG_DS_AUTO_WARN#></div>
 
       <h4><#LANG_DS_AUTO_TITLE#></h4>
+      <p class="ds-help"><#LANG_DS_AUTO_HELP#></p>
       <p>[#if AUTOMATION_ENABLED="1"#]<span class="label label-warning"><#LANG_DS_AUTO_STATE_ON#></span>[#else#]<span class="label label-success"><#LANG_DS_AUTO_STATE_OFF#></span>[#endif#]</p>
       [#if AUTOMATION_ENABLED="1"#]
         <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="disable_automation"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-danger" type="submit"><#LANG_DS_AUTO_OFF#></button></form>
@@ -292,6 +330,7 @@
 
       <hr>
       <h4><#LANG_DS_CTL_DRYRUN_TITLE#></h4>
+      <p class="ds-help"><#LANG_DS_CTL_DRYRUN_HELP#></p>
       <p>[#if DRY_RUN="1"#]<#LANG_DS_DRYRUN_ON#>[#else#]<#LANG_DS_DRYRUN_OFF#>[#endif#]</p>
       [#if DRY_RUN="1"#]
         <form method="post" action="?tab=control" style="display:inline;"><input type="hidden" name="op" value="set_dry_run"><input type="hidden" name="value" value="0"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-danger" type="submit"><#LANG_DS_CTL_DRYRUN_TOGGLE_ON#></button></form>
@@ -307,70 +346,129 @@
   <!-- One shared property list for every "Object.Property" binding input below
        (rendered once instead of six full <select>s; type to search). -->
   <datalist id="ds-props">[#OPTS_PROPS_DATALIST#]</datalist>
-  <h4><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_POLICY_ENERGY#></h4>
+  <p class="text-muted"><#LANG_DS_EN_INTRO#></p>
   <form method="post" action="?tab=policy">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED">
-    <p class="text-muted"><#LANG_DS_EN_INTRO#></p>
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED,ALLOW_BATTERY_HEAT,CHARGE_PRIORITY_ENABLED">
     <div class="row">
-      <div class="col-md-2 form-group"><label><#LANG_DS_COMFORT_MIN#></label><input class="form-control" name="COMFORT_MIN_C" value="[#CFG_COMFORT_MIN_C#]"><small class="text-muted"><#LANG_DS_H_COMFORT_MIN#></small></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_NIGHT_TARGET#></label><input class="form-control" name="NIGHT_TARGET_C" value="[#CFG_NIGHT_TARGET_C#]"><small class="text-muted"><#LANG_DS_H_NIGHT_TARGET#></small></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_SOLAR_TARGET#></label><input class="form-control" name="SOLAR_TARGET_C" value="[#CFG_SOLAR_TARGET_C#]"><small class="text-muted"><#LANG_DS_H_SOLAR_TARGET#></small></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_BOOST_TARGET#></label><input class="form-control" name="BOOST_TARGET_C" value="[#CFG_BOOST_TARGET_C#]"></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_ABS_MAX#></label><input class="form-control" name="ABSOLUTE_MAX_C" value="[#CFG_ABSOLUTE_MAX_C#]"><small class="text-muted"><#LANG_DS_H_ABS_MAX#></small></div>
+      <!-- 1. Comfort and targets -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-fire"></span> <#LANG_DS_POL_TARGETS#></strong></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="col-sm-4 form-group"><label><#LANG_DS_COMFORT_MIN#></label><input class="form-control" type="number" name="COMFORT_MIN_C" value="[#CFG_COMFORT_MIN_C#]"><span class="ds-help"><#LANG_DS_H_COMFORT_MIN#></span></div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_BOOST_TARGET#></label><input class="form-control" type="number" name="BOOST_TARGET_C" value="[#CFG_BOOST_TARGET_C#]"><span class="ds-help"><#LANG_DS_H_BOOST_TARGET#></span></div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_ABS_MAX#></label><input class="form-control" type="number" name="ABSOLUTE_MAX_C" value="[#CFG_ABSOLUTE_MAX_C#]"><span class="ds-help"><#LANG_DS_H_ABS_MAX#></span></div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- 2. Cheap night tariff -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-time"></span> <#LANG_DS_POLICY_TARIFF#></strong></div>
+        <div class="panel-body">
+          <p class="ds-help" style="margin-top:0;"><#LANG_DS_TAR_INTRO#></p>
+          <div class="row">
+            <div class="col-sm-4 form-group"><label><#LANG_DS_NIGHT_TARGET#></label><input class="form-control" type="number" name="NIGHT_TARGET_C" value="[#CFG_NIGHT_TARGET_C#]"><span class="ds-help"><#LANG_DS_H_NIGHT_TARGET#></span></div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_CHEAP_START#></label>
+              <div class="form-inline">
+                <input class="form-control" type="number" min="0" max="23" name="CHEAP_START_HOUR" value="[#CFG_CHEAP_START_HOUR#]" style="width:64px;"><span class="text-muted">:</span>
+                <input class="form-control" type="number" min="0" max="59" name="CHEAP_START_MIN" value="[#CFG_CHEAP_START_MIN#]" style="width:64px;">
+              </div>
+            </div>
+            <div class="col-sm-4 form-group"><label><#LANG_DS_CHEAP_END#></label>
+              <div class="form-inline">
+                <input class="form-control" type="number" min="0" max="23" name="CHEAP_END_HOUR" value="[#CFG_CHEAP_END_HOUR#]" style="width:64px;"><span class="text-muted">:</span>
+                <input class="form-control" type="number" min="0" max="59" name="CHEAP_END_MIN" value="[#CFG_CHEAP_END_MIN#]" style="width:64px;">
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_TIMEZONE#></label><select class="form-control" name="TIMEZONE">[#OPTS_TIMEZONE#]</select></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_METER_OFFSET#></label><input class="form-control" type="number" name="METER_OFFSET_SECONDS" value="[#CFG_METER_OFFSET_SECONDS#]"><span class="ds-help"><#LANG_DS_H_METER_OFFSET#></span></div>
+          </div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_START_GUARD#></label><input class="form-control" type="number" name="START_GUARD_SECONDS" value="[#CFG_START_GUARD_SECONDS#]"></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_END_GUARD#></label><input class="form-control" type="number" name="END_GUARD_SECONDS" value="[#CFG_END_GUARD_SECONDS#]"></div>
+          </div>
+          <span class="ds-help"><#LANG_DS_H_GUARD#></span>
+          <p style="font-size:12px;margin:8px 0 0 0;"><#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="ds-st ds-st-ok"><#LANG_DS_TARIFF_CHEAP_NOW#></span>[#else#]<span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_DAY_NOW#></span>[#endif#]</p>
+        </div>
+      </div></div>
     </div>
 
-    <h4><#LANG_DS_SURPLUS_TITLE#></h4>
-    <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_SURPLUS_RELATED#></div>
-    <div class="checkbox"><label><input type="checkbox" name="SOLAR_SURPLUS_ENABLED" value="1" [#if SOLAR_SURPLUS_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SURPLUS_ENABLE#></label></div>
     <div class="row">
-      <div class="col-md-4 form-group"><label><#LANG_DS_SOC_PROP#></label><input class="form-control" name="SOC_PROPERTY" value="[#CFG_SOC_PROPERTY#]" list="ds-props" autocomplete="off"><small class="text-muted"><#LANG_DS_H_SOC_PROP#></small></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_SURPLUS_HIGH#></label><input class="form-control" name="SURPLUS_SOC_HIGH" value="[#CFG_SURPLUS_SOC_HIGH#]"><small class="text-muted"><#LANG_DS_H_SURPLUS_HIGH#></small></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_SURPLUS_LOW#></label><input class="form-control" name="SURPLUS_SOC_LOW" value="[#CFG_SURPLUS_SOC_LOW#]"><small class="text-muted"><#LANG_DS_H_SURPLUS_LOW#></small></div>
+      <!-- 3. Power source -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-flash"></span> <#LANG_DS_PWR_TITLE#></strong></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_PWR_PROP#></label><input class="form-control" name="POWER_PROPERTY" value="[#CFG_POWER_PROPERTY#]" list="ds-props" autocomplete="off"><span class="ds-help"><#LANG_DS_H_PWR_PROP#></span></div>
+            <div class="col-sm-3 form-group"><label><#LANG_DS_PWR_ACTIVE_VAL#></label><input class="form-control" name="BATTERY_ACTIVE_VALUE" value="[#CFG_BATTERY_ACTIVE_VALUE#]"></div>
+            <div class="col-sm-3 form-group"><label><#LANG_DS_PWR_FRESH#></label><input class="form-control" type="number" min="0" name="POWER_FRESHNESS_TTL_S" value="[#CFG_POWER_FRESHNESS_TTL_S#]"></div>
+          </div>
+          <p style="font-size:12px;margin:0;"><#LANG_DS_PWR_RAW#>: <code>[#POWER_RAW#]</code> — <#LANG_DS_PWR_INTERP#>: <strong>[#POWER_HUMAN#]</strong></p>
+          <p style="font-size:12px;margin:4px 0 0 0;"><#LANG_DS_PWR_AGE#>: <strong>[#POWER_AGE_F#]</strong> <#LANG_DS_SEC_SHORT#> &nbsp;|&nbsp; <#LANG_DS_PWR_TTL_NOW#>: <strong>[#POWER_TTL#]</strong> <#LANG_DS_SEC_SHORT#></p>
+          <span class="ds-help"><#LANG_DS_PWR_FRESH_NOTE#></span>
+          <div class="checkbox" style="margin-top:10px;"><label><input type="checkbox" name="ALLOW_BATTERY_HEAT" value="1" [#if CFG_ALLOW_BATTERY_HEAT="1"#]checked[#endif#]> <#LANG_DS_ALLOW_BATTERY_HEAT#></label></div>
+          <span class="ds-help"><#LANG_DS_H_ALLOW_BATTERY_HEAT#></span>
+        </div>
+      </div></div>
+
+      <!-- 4. Charge priority (battery first) -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-oil"></span> <#LANG_DS_CP_TITLE#></strong></div>
+        <div class="panel-body">
+          <p class="ds-help" style="margin-top:0;"><#LANG_DS_CP_HELP#></p>
+          <div class="checkbox"><label><input type="checkbox" name="CHARGE_PRIORITY_ENABLED" value="1" [#if CFG_CHARGE_PRIORITY_ENABLED="1"#]checked[#endif#]> <#LANG_DS_CP_ENABLE#></label></div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_CP_SOC#></label><input class="form-control" type="number" min="1" max="100" name="CHARGE_PRIORITY_SOC" value="[#CFG_CHARGE_PRIORITY_SOC#]"><span class="ds-help"><#LANG_DS_H_CP_SOC#></span></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_CP_HYST#></label><input class="form-control" type="number" min="0" max="50" name="CHARGE_PRIORITY_HYST" value="[#CFG_CHARGE_PRIORITY_HYST#]"><span class="ds-help"><#LANG_DS_H_CP_HYST#></span></div>
+          </div>
+          <p style="font-size:12px;margin:0;"><#LANG_DS_ST_SOC#>: <strong>[#SOC_F#]</strong></p>
+        </div>
+      </div></div>
     </div>
 
-    <h4><#LANG_DS_PWR_TITLE#></h4>
     <div class="row">
-      <div class="col-md-4 form-group"><label><#LANG_DS_PWR_PROP#></label><input class="form-control" name="POWER_PROPERTY" value="[#CFG_POWER_PROPERTY#]" list="ds-props" autocomplete="off"><small class="text-muted"><#LANG_DS_H_PWR_PROP#></small></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_PWR_ACTIVE_VAL#></label><input class="form-control" name="BATTERY_ACTIVE_VALUE" value="[#CFG_BATTERY_ACTIVE_VALUE#]"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_PWR_FRESH#></label><input class="form-control" name="POWER_FRESHNESS_TTL_S" value="[#CFG_POWER_FRESHNESS_TTL_S#]"><small class="text-muted"><#LANG_DS_PWR_FRESH_NOTE#></small></div>
+      <!-- 5. Solar surplus -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-certificate"></span> <#LANG_DS_SURPLUS_TITLE#></strong></div>
+        <div class="panel-body">
+          <p class="ds-help" style="margin-top:0;"><#LANG_DS_SURPLUS_HELP#></p>
+          <div class="checkbox"><label><input type="checkbox" name="SOLAR_SURPLUS_ENABLED" value="1" [#if SOLAR_SURPLUS_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SURPLUS_ENABLE#></label></div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_SOC_PROP#></label><input class="form-control" name="SOC_PROPERTY" value="[#CFG_SOC_PROPERTY#]" list="ds-props" autocomplete="off"><span class="ds-help"><#LANG_DS_H_SOC_PROP#></span></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_SOLAR_TARGET#></label><input class="form-control" type="number" name="SOLAR_TARGET_C" value="[#CFG_SOLAR_TARGET_C#]"><span class="ds-help"><#LANG_DS_H_SOLAR_TARGET#></span></div>
+          </div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_SURPLUS_HIGH#></label><input class="form-control" type="number" name="SURPLUS_SOC_HIGH" value="[#CFG_SURPLUS_SOC_HIGH#]"><span class="ds-help"><#LANG_DS_H_SURPLUS_HIGH#></span></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_SURPLUS_LOW#></label><input class="form-control" type="number" name="SURPLUS_SOC_LOW" value="[#CFG_SURPLUS_SOC_LOW#]"><span class="ds-help"><#LANG_DS_H_SURPLUS_LOW#></span></div>
+          </div>
+          <span class="ds-help"><#LANG_DS_SURPLUS_RELATED#></span>
+        </div>
+      </div></div>
+
+      <!-- 6. Forecast property bindings -->
+      <div class="col-lg-6"><div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_POLICY_FORECAST#></strong></div>
+        <div class="panel-body">
+          <p class="ds-help" style="margin-top:0;"><#LANG_DS_FC_INTRO#></p>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_FC_TODAY_PROP#></label><input class="form-control" name="FORECAST_TODAY_PROP" value="[#CFG_FORECAST_TODAY_PROP#]" placeholder="SolarForecast.TodayRemainingKwh" list="ds-props" autocomplete="off"></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_FC_TOMORROW_PROP#></label><input class="form-control" name="FORECAST_TOMORROW_PROP" value="[#CFG_FORECAST_TOMORROW_PROP#]" list="ds-props" autocomplete="off"></div>
+          </div>
+          <div class="row">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_FC_UPDATED_PROP#></label><input class="form-control" name="FORECAST_UPDATED_PROP" value="[#CFG_FORECAST_UPDATED_PROP#]" list="ds-props" autocomplete="off"></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_FC_PROVIDER_PROP#></label><input class="form-control" name="FORECAST_PROVIDER_PROP" value="[#CFG_FORECAST_PROVIDER_PROP#]" list="ds-props" autocomplete="off"></div>
+          </div>
+        </div>
+      </div></div>
     </div>
-    <p class="text-muted" style="font-size:12px;"><#LANG_DS_PWR_RAW#>: <code>[#POWER_RAW#]</code> — <#LANG_DS_PWR_INTERP#>: [#POWER_HUMAN#]</p>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
+
+    <button class="btn btn-primary" type="submit"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
   </form>
 
-  <hr>
-  <h4><span class="glyphicon glyphicon-time"></span> <#LANG_DS_POLICY_TARIFF#></h4>
-  <form method="post" action="?tab=policy">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <p class="text-muted"><#LANG_DS_TAR_INTRO#></p>
-    <div class="row">
-      <div class="col-md-3 form-group"><label><#LANG_DS_TIMEZONE#></label><select class="form-control" name="TIMEZONE">[#OPTS_TIMEZONE#]</select></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_CHEAP_START#></label>
-        <div class="form-inline">
-          <input class="form-control" type="number" min="0" max="23" name="CHEAP_START_HOUR" value="[#CFG_CHEAP_START_HOUR#]" style="width:70px;"> <span class="text-muted"><#LANG_DS_HOUR_SHORT#></span>
-          <input class="form-control" type="number" min="0" max="59" name="CHEAP_START_MIN" value="[#CFG_CHEAP_START_MIN#]" style="width:70px;"> <span class="text-muted"><#LANG_DS_MIN_SHORT#></span>
-        </div>
-      </div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_CHEAP_END#></label>
-        <div class="form-inline">
-          <input class="form-control" type="number" min="0" max="23" name="CHEAP_END_HOUR" value="[#CFG_CHEAP_END_HOUR#]" style="width:70px;"> <span class="text-muted"><#LANG_DS_HOUR_SHORT#></span>
-          <input class="form-control" type="number" min="0" max="59" name="CHEAP_END_MIN" value="[#CFG_CHEAP_END_MIN#]" style="width:70px;"> <span class="text-muted"><#LANG_DS_MIN_SHORT#></span>
-        </div>
-      </div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_METER_OFFSET#></label><input class="form-control" name="METER_OFFSET_SECONDS" value="[#CFG_METER_OFFSET_SECONDS#]"><small class="text-muted"><#LANG_DS_H_METER_OFFSET#></small></div>
-    </div>
-    <div class="row">
-      <div class="col-md-2 form-group"><label><#LANG_DS_START_GUARD#></label><input class="form-control" name="START_GUARD_SECONDS" value="[#CFG_START_GUARD_SECONDS#]"></div>
-      <div class="col-md-2 form-group"><label><#LANG_DS_END_GUARD#></label><input class="form-control" name="END_GUARD_SECONDS" value="[#CFG_END_GUARD_SECONDS#]"></div>
-      <div class="col-md-8"><small class="text-muted"><#LANG_DS_H_GUARD#></small></div>
-    </div>
-    <p><#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="label label-info"><#LANG_DS_YES#></span>[#else#]<#LANG_DS_NO#>[#endif#]</p>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
-  </form>
-
-  <hr>
-  <h4><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_POLICY_FORECAST#></h4>
-  <p class="text-muted"><#LANG_DS_FC_INTRO#></p>
+  <h4 style="margin-top:20px;"><span class="glyphicon glyphicon-cloud"></span> <#LANG_DS_FC_NOW_TITLE#></h4>
   <div class="panel panel-default"><div class="panel-body">
     <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
     <div id="ds-fc-ok" class="row" style="[#if FC_AVAILABLE="1"#]display:block;[#else#]display:none;[#endif#]">
@@ -382,24 +480,14 @@
     <div id="ds-fc-none" class="alert alert-warning" style="margin:0;[#if FC_AVAILABLE="1"#]display:none;[#else#]display:block;[#endif#]"><#LANG_DS_FC_NONE#></div>
   </div></div>
 
-  <form method="post" action="?tab=policy">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <div class="row">
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TODAY_PROP#></label><input class="form-control" name="FORECAST_TODAY_PROP" value="[#CFG_FORECAST_TODAY_PROP#]" placeholder="SolarForecast.TodayRemainingKwh" list="ds-props" autocomplete="off"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_TOMORROW_PROP#></label><input class="form-control" name="FORECAST_TOMORROW_PROP" value="[#CFG_FORECAST_TOMORROW_PROP#]" list="ds-props" autocomplete="off"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_UPDATED_PROP#></label><input class="form-control" name="FORECAST_UPDATED_PROP" value="[#CFG_FORECAST_UPDATED_PROP#]" list="ds-props" autocomplete="off"></div>
-      <div class="col-md-3 form-group"><label><#LANG_DS_FC_PROVIDER_PROP#></label><input class="form-control" name="FORECAST_PROVIDER_PROP" value="[#CFG_FORECAST_PROVIDER_PROP#]" list="ds-props" autocomplete="off"></div>
-    </div>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
-  </form>
-  <hr>
+
   <form method="post" action="?tab=policy">
     <input type="hidden" name="op" value="discover_properties"><input type="hidden" name="csrf" value="[#CSRF#]">
     <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FC_DISCOVER#></button>
     <small class="text-muted"><#LANG_DS_FC_DISCOVER_HINT#></small>
   </form>
   [#if PROPERTY_CANDIDATES#]
-    <table class="table table-condensed" style="margin-top:10px;"><thead><tr><th><#LANG_DS_FC_CANDIDATES#></th><th>value</th><th>updated</th></tr></thead><tbody>
+    <table class="table table-condensed" style="margin-top:10px;"><thead><tr><th><#LANG_DS_FC_CANDIDATES#></th><th><#LANG_DS_COL_VALUE#></th><th><#LANG_DS_COL_UPDATED#></th></tr></thead><tbody>
     [#begin PROPERTY_CANDIDATES#]
       <tr><td><code>[#property#]</code></td><td>[#value#]</td><td>[#updated#]</td></tr>
     [#end PROPERTY_CANDIDATES#]
@@ -498,32 +586,67 @@
   [#else#]
     <div class="alert alert-warning"><#LANG_DS_SD_UNAVAILABLE#></div>
   [#endif#]
+  [#if PROVISION_RESULT="1"#]
+    [#if PROVISION_KEY="SD_PROVISIONED"#]<div class="alert alert-success"><#LANG_DS_SD_PROVISIONED#></div>[#endif#]
+    [#if PROVISION_KEY="SD_ALL_LINKED"#]<div class="alert alert-info"><#LANG_DS_SD_ALL_LINKED#></div>[#endif#]
+    [#if PROVISION_KEY="SD_PROVISION_FAIL"#]<div class="alert alert-danger"><#LANG_DS_SD_PROVISION_FAIL#></div>[#endif#]
+    [#if PROVISION_KEY="SD_UNAVAILABLE"#]<div class="alert alert-danger"><#LANG_DS_SD_UNAVAILABLE#></div>[#endif#]
+  [#endif#]
+
+  <!-- Link status of every simple device; the create button is offered only
+       while at least one device is not linked yet. -->
+  <table class="table table-condensed" style="max-width:900px;">
+    <thead><tr><th><#LANG_DS_SD_COL_DEVICE#></th><th><#LANG_DS_SD_COL_OBJECT#></th><th><#LANG_DS_SD_COL_TYPE#></th><th><#LANG_DS_SD_COL_STATUS#></th></tr></thead>
+    <tbody>
+    [#begin SD_ROWS#]
+      <tr>
+        <td>[#TITLE#]</td>
+        <td><code>[#OBJECT#]</code></td>
+        <td class="text-muted">[#TYPE#]</td>
+        <td>[#if LINKED="1"#]<span class="ds-st ds-st-ok"><#LANG_DS_SD_LINKED#></span> <small class="text-muted">#[#DEVICE_ID#] [#DEVICE_TITLE#]</small>[#else#]<span class="ds-st ds-st-warn"><#LANG_DS_SD_NOT_LINKED#></span>[#endif#]</td>
+      </tr>
+    [#end SD_ROWS#]
+    </tbody>
+  </table>
+  [#if SD_HAS_MISSING="1"#]
+    <form method="post" action="?tab=advanced" style="margin-bottom:10px;">
+      <input type="hidden" name="op" value="provision_simple_devices"><input type="hidden" name="csrf" value="[#CSRF#]">
+      <button class="btn btn-primary" type="submit"[#if SIMPLE_DEVICES_AVAILABLE="0"#] disabled[#endif#]><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SD_PROVISION#> ([#SD_MISSING#])</button>
+      <span class="ds-help"><#LANG_DS_SD_PROVISION_HINT#></span>
+    </form>
+  [#else#]
+    <p class="text-muted"><span class="glyphicon glyphicon-ok"></span> <#LANG_DS_SD_ALL_LINKED#></p>
+  [#endif#]
+
   <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SIMPLE_DEVICES_ENABLED">
     <div class="checkbox"><label><input type="checkbox" name="SIMPLE_DEVICES_ENABLED" value="1" [#if SIMPLE_DEVICES_ENABLED="1"#]checked[#endif#]> <#LANG_DS_SD_ENABLE#></label></div>
-    <div class="alert alert-info" style="font-size:12px;"><strong><#LANG_DS_SD_USUALLY_EMPTY#></strong></div>
-    <div class="form-group">
-      <label><#LANG_DS_SD_MAP#></label>
-      <textarea class="form-control" name="SIMPLE_DEVICES_MAP_JSON" rows="7" style="font-family:monospace;font-size:12px;" placeholder='{"thermostat":{"type":"SThermostats","object":"DraziceBoiler","title":"Drazice Boiler"}, ...}'>[#CFG_SIMPLE_DEVICES_MAP_JSON#]</textarea>
-      <small class="text-muted"><#LANG_DS_SD_MAP_HINT#></small>
-    </div>
+    <span class="ds-help"><#LANG_DS_SD_ENABLE_HINT#></span>
+    <details style="margin:10px 0;">
+      <summary><#LANG_DS_SD_MAP#> — <#LANG_DS_SD_USUALLY_EMPTY#></summary>
+      <div class="form-group" style="margin-top:8px;">
+        <textarea class="form-control" name="SIMPLE_DEVICES_MAP_JSON" rows="7" style="font-family:monospace;font-size:12px;">[#CFG_SIMPLE_DEVICES_MAP_JSON#]</textarea>
+        <span class="ds-help"><#LANG_DS_SD_MAP_HINT#></span>
+        <div class="ds-help"><#LANG_DS_SD_DEFAULT_MAP#>:</div>
+        <pre style="font-size:11px;max-height:220px;overflow:auto;">[#SD_DEFAULT_MAP#]</pre>
+      </div>
+    </details>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
-  <form method="post" action="?tab=advanced" style="margin-top:8px;">
-    <input type="hidden" name="op" value="provision_simple_devices"><input type="hidden" name="csrf" value="[#CSRF#]">
-    <button class="btn btn-default" type="submit"><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SD_PROVISION#></button>
-    <small class="text-muted"><#LANG_DS_SD_PROVISION_HINT#></small>
-  </form>
-  [#if PROVISION_RESULT#]
-    <div class="alert alert-success" style="margin-top:10px;"><#LANG_DS_SD_PROVISIONED#></div>
-  [#endif#]
 
   <hr>
   <!-- (d) Presence -->
   <h4><span class="glyphicon glyphicon-user"></span> <#LANG_DS_TAB_PRESENCE#></h4>
   <div class="alert alert-warning" style="font-size:12px;"><#LANG_DS_PR_WARN#></div>
   <p class="text-muted"><#LANG_DS_PR_INTRO#></p>
+  <div class="panel panel-default" style="max-width:900px;"><div class="panel-body" style="font-size:12px;">
+    <strong><#LANG_DS_PR_SOURCE_TITLE#></strong>
+    <p style="margin:6px 0;"><#LANG_DS_PR_SOURCE_HINT#></p>
+    <div><#LANG_DS_PR_WIFI_NOW#>:</div>
+    <pre style="font-size:11px;max-height:140px;overflow:auto;margin:4px 0 0 0;">[#WIFI_OBS_JSON#]</pre>
+  </div></div>
   [#if PRESENT_PEOPLE#]<p><#LANG_DS_PR_PRESENT#>: <strong>[#PRESENT_PEOPLE#]</strong></p>[#endif#]
+  <datalist id="ds-handlers">[#OPTS_HANDLERS_DATALIST#]</datalist>
   <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="PRESENCE_ENABLED">
     <div class="checkbox"><label><input type="checkbox" name="PRESENCE_ENABLED" value="1" [#if PRESENCE_ENABLED="1"#]checked[#endif#]> <#LANG_DS_PR_ENABLE#></label></div>
@@ -533,7 +656,7 @@
       <div class="col-md-2 form-group"><label><#LANG_DS_PR_NOTIFY#></label><input class="form-control" name="PRESENCE_NOTIFY_AFTER_S" value="[#CFG_PRESENCE_NOTIFY_AFTER_S#]"></div>
       <div class="col-md-2 form-group"><label><#LANG_DS_PR_TOO_LONG#></label><input class="form-control" name="PRESENCE_TOO_LONG_AFTER_S" value="[#CFG_PRESENCE_TOO_LONG_AFTER_S#]"></div>
       <div class="col-md-2 form-group"><label><#LANG_DS_PR_RENOTIFY#></label><input class="form-control" name="PRESENCE_RENOTIFY_EVERY_S" value="[#CFG_PRESENCE_RENOTIFY_EVERY_S#]"></div>
-      <div class="col-md-4 form-group"><label><#LANG_DS_PR_HANDLER#></label><input class="form-control" name="PRESENCE_HANDLER" value="[#CFG_PRESENCE_HANDLER#]"><small class="text-muted"><#LANG_DS_H_PR_HANDLER#></small></div>
+      <div class="col-md-4 form-group"><label><#LANG_DS_PR_HANDLER#></label><input class="form-control" name="PRESENCE_HANDLER" value="[#CFG_PRESENCE_HANDLER#]" list="ds-handlers" autocomplete="off" placeholder="script:presenceAnnounce"><small class="text-muted"><#LANG_DS_H_PR_HANDLER#></small></div>
     </div>
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_PR_EVENTS#></div>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
@@ -551,7 +674,7 @@
     </div>
     <div class="col-md-5">
       <h4><#LANG_DS_LOG_COMMANDS#></h4>
-      <table id="ds-log-commands" class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th>kind</th><th><#LANG_DS_LOG_STATUS#></th></tr></thead><tbody>
+      <table id="ds-log-commands" class="table table-condensed table-striped"><thead><tr><th><#LANG_DS_LOG_TIME#></th><th><#LANG_DS_LOG_KIND#></th><th><#LANG_DS_LOG_STATUS#></th></tr></thead><tbody>
       [#begin LOG_COMMANDS#]<tr><td>[#TIME#]</td><td>[#KIND#]</td><td>[#STATUS#]</td></tr>[#end LOG_COMMANDS#]
       </tbody></table>
     </div>
@@ -567,11 +690,13 @@
       <div class="panel panel-default">
         <div class="panel-heading"><strong><#LANG_DS_DG_BOILER#></strong></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_DG_BOILER_STATE#></td><td><code data-ds-dg="BOILER_STATE">[#DG_BOILER_STATE#]</code></td></tr>
+          <tr><td><#LANG_DS_DG_BOILER_STATE#></td><td><span class="ds-st ds-st-muted" data-ds-st="boiler" data-ds-dg="BOILER_STATE">[#DG_BOILER_STATE#]</span></td></tr>
+          <tr><td><#LANG_DS_DG_BOILER_SETPOINT#></td><td><span data-ds-dg="BOILER_SETPOINT">[#DG_BOILER_SETPOINT#]</span> °C</td></tr>
+          <tr><td><#LANG_DS_DG_BOILER_MODE#></td><td data-ds-dg="BOILER_MODE">[#DG_BOILER_MODE#]</td></tr>
           <tr><td><#LANG_DS_DG_VERSION#></td><td data-ds-dg="BOILER_VER">[#DG_BOILER_VER#]</td></tr>
           <tr><td><#LANG_DS_DG_BOILER_NAME#></td><td data-ds-dg="BOILER_NAME">[#DG_BOILER_NAME#]</td></tr>
-          <tr><td><#LANG_DS_CTL_REQ_TARGET#></td><td><span data-ds-dg="REQ_TARGET">[#DG_REQ_TARGET#]</span> °C</td></tr>
-          <tr><td><#LANG_DS_CTL_REQ_MODE#></td><td data-ds-dg="REQ_MODE">[#DG_REQ_MODE#]</td></tr>
+          <tr><td><#LANG_DS_DG_REQ_TARGET#></td><td><span data-ds-dg="REQ_TARGET">[#DG_REQ_TARGET#]</span> °C</td></tr>
+          <tr><td><#LANG_DS_DG_REQ_MODE#></td><td data-ds-dg="REQ_MODE">[#DG_REQ_MODE#]</td></tr>
         </table>
       </div>
       <div class="panel panel-default">
@@ -586,8 +711,8 @@
       <div class="panel panel-default">
         <div class="panel-heading"><strong><#LANG_DS_DG_GUARD#></strong></div>
         <table class="table table-condensed">
-          <tr><td><#LANG_DS_DG_GUARD_STATE#></td><td><code data-ds-dg="GUARD_STATE">[#DG_GUARD_STATE#]</code></td></tr>
-          <tr><td><#LANG_DS_DG_GUARD_REASON#></td><td data-ds-dg="GUARD_REASON">[#DG_GUARD_REASON#]</td></tr>
+          <tr><td><#LANG_DS_DG_GUARD_STATE#></td><td><span class="ds-st ds-st-muted" data-ds-st="guard" data-ds-dg="GUARD_STATE">[#DG_GUARD_STATE#]</span></td></tr>
+          <tr><td><#LANG_DS_DG_GUARD_REASON#></td><td><span class="ds-st ds-st-plain" data-ds-st="reason" data-ds-dg="GUARD_REASON">[#DG_GUARD_REASON#]</span></td></tr>
           <tr><td><#LANG_DS_DG_CONT_HEAT#></td><td><span data-ds-dg="CONT_HEAT_S">[#DG_CONT_HEAT_S#]</span> с</td></tr>
           <tr><td><#LANG_DS_ST_COOLDOWN#></td><td><span data-ds-dg="COOLDOWN_S">[#DG_COOLDOWN_S#]</span> с</td></tr>
           <tr><td><#LANG_DS_DG_LEASE#></td><td><span data-ds-dg="LEASE_S">[#DG_LEASE_S#]</span> с</td></tr>
@@ -609,6 +734,7 @@
         <div class="panel-heading"><strong><#LANG_DS_DG_BLE_CTL#></strong></div>
         <div class="panel-body">
           <form method="post" action="?tab=diag" style="display:inline;"><input type="hidden" name="op" value="lease_renew"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-default btn-sm" type="submit"><#LANG_DS_DG_LEASE_RENEW#></button></form>
+          <span class="ds-help"><#LANG_DS_DG_LEASE_HELP#></span>
           <form method="post" action="?tab=diag" style="display:inline;"><input type="hidden" name="op" value="release_ble"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RELEASE_BLE#></button></form>
           <form method="post" action="?tab=diag" style="display:inline;"><input type="hidden" name="op" value="reconnect_ble"><input type="hidden" name="csrf" value="[#CSRF#]"><button class="btn btn-default btn-sm" type="submit"><#LANG_DS_CTL_RECONNECT_BLE#></button></form>
         </div>

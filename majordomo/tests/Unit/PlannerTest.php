@@ -120,3 +120,51 @@ T::eq($d['target_c'], 70.0, 'target capped to absolute_max 70');
 $cfgNoSurplus = $cfg; $cfgNoSurplus['solar_surplus_enabled'] = false;
 $d = Planner::decide(baseSnap(array('temp_upper' => 60.0, 'solar_surplus_enabled' => false)), $cfgNoSurplus);
 T::eq($d['reason'], 'idle_comfort_ok', 'comfort ok day -> idle');
+
+// --- Solar surplus lifts the battery-source ban (battery already full) -------
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'battery_soc' => 100.0, 'temp_upper' => 55.0)), $cfg);
+T::eq($d['reason'], 'solar_surplus', 'battery source + SOC 100 daytime -> solar_surplus (ban lifted)');
+T::eq($d['allowed'], true, 'surplus on battery source -> allowed');
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'battery_soc' => 99.0, 'temp_upper' => 55.0)), $cfg);
+T::eq($d['reason'], 'battery_source_block', 'battery source + SOC 99 (not latched) -> still blocked');
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'battery_soc' => 97.0, 'temp_upper' => 55.0, 'surplus_latched' => true)), $cfg);
+T::eq($d['reason'], 'battery_source_block', 'battery source + latched surplus released at SOC 97 -> blocked again');
+$d = Planner::decide(baseSnap(array('power_source' => 'battery', 'battery_soc' => 100.0, 'in_cooldown' => true, 'cooldown_remaining_s' => 60, 'temp_upper' => 40.0)), $cfg);
+T::eq($d['reason'], 'cooldown_active', 'surplus on battery does NOT bypass cooldown');
+
+// --- Charge priority ("battery first") ----------------------------------------
+$cfgCp = array_merge($cfg, array('charge_priority_enabled' => true, 'charge_priority_soc' => 100, 'charge_priority_hyst' => 5,
+    'solar_surplus_enabled' => false));
+// After a blackout on grid: cold water, battery charging -> wait.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 40.0)), $cfgCp);
+T::eq($d['reason'], 'charge_priority_wait', 'grid + SOC 40 + below comfort -> charge_priority_wait');
+T::eq($d['allowed'], false, 'charge priority wait -> not allowed');
+// Night cheap tariff, battery not full -> wait.
+$d = Planner::decide(baseSnap(array('tariff_active' => true, 'is_daytime' => false, 'temp_upper' => 50.0, 'battery_soc' => 80.0)), $cfgCp);
+T::eq($d['reason'], 'charge_priority_wait', 'cheap tariff + SOC 80 -> charge_priority_wait');
+// Battery full -> released -> normal comfort heating.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 100.0)), $cfgCp);
+T::eq($d['reason'], 'comfort_minimum', 'SOC 100 -> released -> comfort_minimum');
+// Hysteresis: released latch keeps heating at SOC 96 (>= 100-5) ...
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 96.0, 'charge_released_latched' => true)), $cfgCp);
+T::eq($d['reason'], 'comfort_minimum', 'latched + SOC 96 -> still released');
+// ... and blocks again below 95.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 94.0, 'charge_released_latched' => true)), $cfgCp);
+T::eq($d['reason'], 'charge_priority_wait', 'latched + SOC 94 (< 100-5) -> wait again');
+// SOC unknown -> conservative hold.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => null)), $cfgCp);
+T::eq($d['reason'], 'charge_priority_soc_unknown', 'SOC unknown -> charge_priority_soc_unknown');
+// Manual boost is NOT gated by charge priority.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 40.0, 'boost_active' => true)), $cfgCp);
+T::eq($d['reason'], 'manual_boost', 'boost not gated by charge priority');
+// Disabled -> no effect.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 40.0)), array_merge($cfgCp, array('charge_priority_enabled' => false)));
+T::eq($d['reason'], 'comfort_minimum', 'charge priority disabled -> comfort heats');
+// Cooldown still wins over everything.
+$d = Planner::decide(baseSnap(array('temp_upper' => 30.0, 'battery_soc' => 100.0, 'in_cooldown' => true, 'cooldown_remaining_s' => 60)), $cfgCp);
+T::eq($d['reason'], 'cooldown_active', 'charge priority does not bypass cooldown');
+// Pure helper latch transitions.
+$cp = Planner::evalChargePriority(array('battery_soc' => 100.0, 'charge_released_latched' => false), $cfgCp);
+T::eq($cp['released'], true, 'evalChargePriority: SOC 100 -> released');
+$cp = Planner::evalChargePriority(array('battery_soc' => 99.0, 'charge_released_latched' => false), $cfgCp);
+T::eq($cp['released'], false, 'evalChargePriority: SOC 99 not latched -> not released');

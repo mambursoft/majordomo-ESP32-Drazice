@@ -9,8 +9,11 @@
  *   2. Unusable data / unknown power / unverified control -> hold.
  *   3. Local max continuous heat + mandatory cooldown.
  *   4. Battery-source heating ban (policy).
+ *      (an active solar surplus — battery at its SOC threshold — lifts it).
  *   5. Hygiene / comfort minimum (conflicts surfaced to a human).
  *   6. Manual boost with TTL (does not bypass 1–4).
+ *   6b. Charge priority "battery first" (optional): automatic heating waits
+ *       for SOC >= threshold, with hysteresis; boost is not gated.
  *   7. Comfort minimum before deadline.
  *   8. Forecast / solar surplus / tariff savings.
  *
@@ -24,7 +27,7 @@ namespace DraziceSmart;
 
 class Planner
 {
-    const ALGO_VERSION = '1.0.0';
+    const ALGO_VERSION = '1.1.0';
 
     /**
      * @param array $s   snapshot (see Repository::buildSnapshot keys)
@@ -85,14 +88,22 @@ class Planner
                 'Джерело живлення невідоме — консервативно не запускаємо нагрів.');
         }
 
+        // Solar surplus is evaluated BEFORE the battery-source ban: when the
+        // battery has reached the surplus threshold the extra energy comes from
+        // solar generation regardless of whether the inverter currently runs the
+        // house from grid or battery. The surplus LOW threshold (hysteresis)
+        // stops heating before the battery is meaningfully discharged.
+        $surplus = self::evalSolarSurplus($s, $c);
+
         // On battery: blocked by default. Allowed only when the user explicitly
         // opts in — either a global "allow battery heat" flag, or a manual boost
-        // that is marked battery-allowed. Boiler-safety (cooldown) still applies.
+        // that is marked battery-allowed — or when a solar surplus is active.
+        // Boiler-safety (cooldown) still applies.
         $onBattery = ($power === 'battery');
         $allowBattery = !empty($c['allow_battery_heat']);
         $boostActive = !empty($s['boost_active']);
         $boostAllowsBattery = !empty($s['boost_allow_battery']);
-        if ($onBattery && !$allowBattery && !($boostActive && $boostAllowsBattery)) {
+        if ($onBattery && !$allowBattery && !($boostActive && $boostAllowsBattery) && !$surplus['active']) {
             return self::fill($r, 'hold', null, null,
                 'battery_source_block', 4, false,
                 'Живлення від батарей — нові пуски нагріву заборонено політикою. '
@@ -115,6 +126,18 @@ class Planner
             }
         }
 
+        // --- Level 6b: charge priority (battery first) ------------------------
+        // Optional. Automatic heating (comfort minimum, cheap tariff) waits until
+        // the battery SOC reaches a threshold, so the boiler does not start at
+        // the same moment as a high-power battery charge (e.g. right after a
+        // blackout). Manual boost above is NOT gated: it is an explicit decision.
+        // The solar-surplus rule has its own SOC threshold and is not gated.
+        $charge = self::evalChargePriority($s, $c);
+        if ($charge['blocks'] && !$surplus['active']) {
+            return self::fill($r, 'hold', null, null,
+                $charge['reason'], 6, false, $charge['human']);
+        }
+
         // --- Level 7: comfort minimum ----------------------------------------
         if ($s['temp_upper'] < $comfortMin) {
             return self::fill($r, 'heat', $comfortMin, 'MANUAL',
@@ -124,7 +147,6 @@ class Planner
 
         // --- Level 8a: solar surplus by battery SOC --------------------------
         // Daytime + SOC reached high threshold => surplus, heat until low thr.
-        $surplus = self::evalSolarSurplus($s, $c);
         if ($surplus['active']) {
             $st = $solarTarget;
             if ($st > $absoluteMax) {
@@ -191,6 +213,59 @@ class Planner
             $out['human'] = 'Надлишок генерації: SOC батареї ' . self::fmt($soc)
                 . '% (поріг ' . self::fmt($hi) . '%). Витрачаємо надлишок на нагрів води, доки SOC не впаде до '
                 . self::fmt($lo) . '%.';
+        }
+        return $out;
+    }
+
+    /**
+     * Charge-priority ("battery first") rule. Pure: the latch state comes in
+     * as snapshot['charge_released_latched'] and the new value goes out as
+     * 'released' (the caller persists it).
+     *
+     *   disabled            -> blocks=false
+     *   SOC unknown         -> blocks=true  (conservative: cannot tell whether
+     *                          the battery is still charging)
+     *   not released        -> released once SOC >= threshold
+     *   released            -> stays released until SOC < threshold - hysteresis
+     *
+     * @return array enabled, blocks, released, reason, human
+     */
+    public static function evalChargePriority($s, $c)
+    {
+        $out = array('enabled' => false, 'blocks' => false, 'released' => false,
+            'reason' => '', 'human' => '');
+        if (empty($c['charge_priority_enabled'])) {
+            return $out;
+        }
+        $out['enabled'] = true;
+        $thr = isset($c['charge_priority_soc']) && is_numeric($c['charge_priority_soc'])
+            ? (float) $c['charge_priority_soc'] : 100.0;
+        $hyst = isset($c['charge_priority_hyst']) && is_numeric($c['charge_priority_hyst'])
+            ? max(0.0, (float) $c['charge_priority_hyst']) : 5.0;
+        $soc = isset($s['battery_soc']) ? $s['battery_soc'] : null;
+        if ($soc === null) {
+            $out['blocks'] = true;
+            $out['reason'] = 'charge_priority_soc_unknown';
+            $out['human'] = 'Увімкнено «Спершу заряд акумулятора», але SOC невідомий — '
+                . 'консервативно не запускаємо автоматичний нагрів. Перевірте властивість SOC. '
+                . 'Ручний boost працює.';
+            return $out;
+        }
+        $soc = (float) $soc;
+        $released = !empty($s['charge_released_latched']);
+        if (!$released && $soc >= $thr) {
+            $released = true;
+        }
+        if ($released && $soc < $thr - $hyst) {
+            $released = false;
+        }
+        $out['released'] = $released;
+        if (!$released) {
+            $out['blocks'] = true;
+            $out['reason'] = 'charge_priority_wait';
+            $out['human'] = 'Спершу заряджаємо акумулятор: SOC ' . self::fmt($soc) . '% < порогу '
+                . self::fmt($thr) . '%. Автоматичний нагрів почнеться після заряду '
+                . '(щоб заряд акумулятора і бойлер не вмикались одночасно). Ручний boost працює.';
         }
         return $out;
     }

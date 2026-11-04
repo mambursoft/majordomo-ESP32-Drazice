@@ -34,6 +34,8 @@
     "boiler_state":      {"domain": "text_sensor",  "name": "Boiler State",        "writable": false},
     "boiler_version":    {"domain": "text_sensor",  "name": "Boiler Version",      "writable": false},
     "boiler_name":       {"domain": "text_sensor",  "name": "Boiler Name",         "writable": false},
+    "boiler_setpoint":   {"domain": "sensor",       "name": "Boiler Setpoint",     "unit": "°C", "writable": false, "note": "read-only mirror of the setpoint reported by the boiler (internal climate); null until reported"},
+    "boiler_mode":       {"domain": "text_sensor",  "name": "Boiler Mode",         "writable": false, "note": "read-only mirror of the mode reported by the boiler (internal select)"},
     "pair_trace":        {"domain": "text_sensor",  "name": "Boiler Pair Trace",   "writable": false, "note": "кільце останніх 10 подій парингу 'TAG@uptime_ms | ...'; без цифр PIN; публікується лише по подіях"},
     "last_disconnect":   {"domain": "text_sensor",  "name": "Boiler Last Disconnect", "writable": false, "note": "reason=<gatt> state=<NAME> uptime_ms=<n> since_connect_ms=<n|-> since_pin_tx_ms=<n|->"},
     "pair_attempts":     {"domain": "sensor",       "name": "Boiler Pair Attempts", "writable": false, "note": "лічильник запитів PIN (GLOBAL_PAIRPIN) від бойлера з моменту старту"},

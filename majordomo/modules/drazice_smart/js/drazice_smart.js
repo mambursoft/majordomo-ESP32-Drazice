@@ -300,6 +300,73 @@
     return /^[A-Za-z0-9_]+$/.test(k);
   }
 
+  // Raw firmware / planner codes -> [colour, i18n key]. Colour follows the
+  // MEANING (green = fine, yellow = attention, red = real fault, grey = neutral),
+  // never the element type. The raw code stays available as the tooltip.
+  var STATE_MAP = {
+    boiler: {
+      'Connected': ['ok', 'STB_CONNECTED'],
+      'Require PIN': ['warn', 'STB_REQUIRE_PIN'],
+      'Authenticating': ['muted', 'STB_AUTH'],
+      'Disconnected': ['bad', 'STB_DISCONNECTED']
+    },
+    guard: {
+      'BOOT_SAFE': ['muted', 'STG_BOOT_SAFE'],
+      'IDLE': ['ok', 'STG_IDLE'],
+      'HEATING_ALLOWED': ['ok', 'STG_HEATING_ALLOWED'],
+      'PAUSE_REQUESTED': ['warn', 'STG_PAUSE_REQUESTED'],
+      'COOLDOWN': ['warn', 'STG_COOLDOWN'],
+      'LEASE_EXPIRED': ['muted', 'STG_LEASE_EXPIRED'],
+      'DISCONNECTED': ['bad', 'STG_DISCONNECTED'],
+      'FAULT': ['bad', 'STG_FAULT']
+    },
+    reason: {
+      'boot_safe': ['plain', 'STR_BOOT_SAFE'],
+      'idle_after_boot': ['plain', 'STR_IDLE_AFTER_BOOT'],
+      'lease_expired_no_new_heating': ['plain', 'STR_LEASE_EXPIRED'],
+      'lease_renewed': ['plain', 'STR_LEASE_RENEWED'],
+      'cooldown_complete': ['plain', 'STR_COOLDOWN_COMPLETE'],
+      'max_continuous_heat_reached': ['plain', 'STR_MAX_HEAT'],
+      'heat_not_stopped_in_cooldown': ['plain', 'STR_HEAT_NOT_STOPPED'],
+      'cooldown_restored_full_after_reboot': ['plain', 'STR_COOLDOWN_RESTORED'],
+      'ble_reconnect_requested': ['plain', 'STR_BLE_RECONNECT']
+    },
+    action: {
+      'heat': ['ok', 'ACT_HEAT'],
+      'hold': ['muted', 'ACT_HOLD']
+    }
+  };
+
+  function trimText(s) {
+    return String(s === null || s === undefined ? '' : s).replace(/^\s+|\s+$/g, '');
+  }
+
+  function decorateState(node) {
+    var kind = node.getAttribute('data-ds-st');
+    var raw = trimText(node.textContent);
+    var entry;
+    var label;
+    if (raw !== '' && raw === node.getAttribute('data-ds-label')) {
+      return; // already decorated, nothing new written
+    }
+    entry = (STATE_MAP[kind] || {})[raw];
+    label = (entry && t(entry[1])) ? t(entry[1]) : raw;
+    node.textContent = label;
+    node.setAttribute('data-ds-label', label);
+    if (raw !== '' && raw !== label) {
+      node.setAttribute('title', raw);
+    }
+    node.setAttribute('class', 'ds-st ds-st-' + (entry ? entry[0] : (kind === 'reason' ? 'plain' : 'muted')));
+  }
+
+  function decorateAll() {
+    var nodes = all('[data-ds-st]');
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      decorateState(nodes[i]);
+    }
+  }
+
   // Writes every primitive of data into the nodes tagged with attr="key".
   function applyData(attr, data) {
     var k;
@@ -313,6 +380,10 @@
         nodes = all('[' + attr + '="' + k + '"]');
         for (i = 0; i < nodes.length; i++) {
           nodes[i].textContent = textOf(data[k]);
+          if (nodes[i].hasAttribute('data-ds-st')) {
+            nodes[i].removeAttribute('data-ds-label');
+            decorateState(nodes[i]);
+          }
         }
       }
     }
@@ -890,6 +961,12 @@
           window.location.reload();
           return;
         }
+        if (op === 'provision_simple_devices') {
+          // The link-status table is server-rendered: reload after the banner
+          // has been visible for a moment.
+          window.setTimeout(function () { window.location.reload(); }, 1500);
+          return;
+        }
         if (op === 'send_pin' && form) {
           var pin = form.elements.pin;
           if (pin) {
@@ -932,6 +1009,8 @@
     var refresh = byId('ds-refresh');
     var bleBtn = byId('ds-ble-scan');
     var loader = loaderForTab();
+
+    decorateAll(); // server-rendered raw state codes -> translated badges
 
     if (refresh) {
       refresh.addEventListener('click', function () {

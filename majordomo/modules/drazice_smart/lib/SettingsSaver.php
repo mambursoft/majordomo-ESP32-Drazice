@@ -37,7 +37,7 @@ class SettingsSaver
         return array(
             'checkbox' => array(
                 'ESP_DIGEST', 'ALLOW_BATTERY_HEAT', 'SOLAR_SURPLUS_ENABLED',
-                'PRESENCE_ENABLED', 'SIMPLE_DEVICES_ENABLED',
+                'PRESENCE_ENABLED', 'SIMPLE_DEVICES_ENABLED', 'CHARGE_PRIORITY_ENABLED',
             ),
             'text' => array(
                 'ESP_HOST', 'ESP_USER', 'TIMEZONE', 'POWER_PROPERTY', 'BATTERY_ACTIVE_VALUE',
@@ -53,6 +53,7 @@ class SettingsSaver
                 'METER_OFFSET_SECONDS', 'START_GUARD_SECONDS', 'END_GUARD_SECONDS',
                 'MAX_CONTINUOUS_HEAT_S', 'MIN_PAUSE_S', 'LEASE_TTL_S', 'COMMAND_TIMEOUT_S',
                 'POWER_FRESHNESS_TTL_S', 'SURPLUS_SOC_HIGH', 'SURPLUS_SOC_LOW',
+                'CHARGE_PRIORITY_SOC', 'CHARGE_PRIORITY_HYST',
                 'FORECAST_FRESHNESS_TTL_S', 'BOOST_TTL_S', 'PRESENCE_ABSENT_AFTER_S',
                 'PRESENCE_NOTIFY_AFTER_S', 'PRESENCE_TOO_LONG_AFTER_S',
                 'PRESENCE_RENOTIFY_EVERY_S',

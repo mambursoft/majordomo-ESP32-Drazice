@@ -33,7 +33,7 @@ use DraziceSmart\AjaxApi;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.8.1';
+    const MODULE_VERSION = '1.9.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -293,6 +293,13 @@ class drazice_smart extends module
             'PRESENCE_HANDLER'     => '',   // MajorDoMo method to call (announce)
             // surplus latch state (planner hysteresis)
             'SURPLUS_LATCHED'      => 0,
+            // charge priority ("battery first"): automatic heating waits until
+            // battery SOC >= CHARGE_PRIORITY_SOC; once released it stays released
+            // until SOC < SOC - HYST. OFF by default. Manual boost not gated.
+            'CHARGE_PRIORITY_ENABLED' => 0,
+            'CHARGE_PRIORITY_SOC'  => 100,
+            'CHARGE_PRIORITY_HYST' => 5,
+            'CHARGE_RELEASED_LATCHED' => 0,
             // Single boiler+ESP object (all properties, presence sessions/events).
             'BOILER_OBJECT'        => 'EspBoiler',
             // Simple Devices ("Простые устройства") integration — OFF by default.
@@ -602,6 +609,10 @@ EOD;
             'power_valid'    => $power['valid'],
             'power_human'    => $power['human'],
             'power_raw'      => $power['raw'],
+            // Seconds since the power-source property was last WRITTEN in MajorDoMo
+            // (pvalues.UPDATED); null when unknown. Shown next to the freshness TTL
+            // so a "stale -> unknown" verdict is explainable in the UI.
+            'power_age_s'    => ($srcUpdated !== null ? max(0, (int) $now - (int) $srcUpdated) : null),
             'battery_soc'    => $soc,
             'tariff_active'  => !empty($tariff['active']),
             'tariff_meter_local' => $tariff['meter_local'],
@@ -609,6 +620,7 @@ EOD;
             'boost_active'   => $boostActive,
             'boost_allow_battery' => !empty($this->config['BOOST_ALLOW_BATTERY']),
             'surplus_latched' => !empty($this->config['SURPLUS_LATCHED']),
+            'charge_released_latched' => !empty($this->config['CHARGE_RELEASED_LATCHED']),
             'solar_surplus_enabled' => !empty($this->config['SOLAR_SURPLUS_ENABLED']),
         );
     }
@@ -626,6 +638,9 @@ EOD;
             'surplus_soc_high' => $this->config['SURPLUS_SOC_HIGH'],
             'surplus_soc_low'  => $this->config['SURPLUS_SOC_LOW'],
             'allow_battery_heat' => !empty($this->config['ALLOW_BATTERY_HEAT']),
+            'charge_priority_enabled' => !empty($this->config['CHARGE_PRIORITY_ENABLED']),
+            'charge_priority_soc' => isset($this->config['CHARGE_PRIORITY_SOC']) ? $this->config['CHARGE_PRIORITY_SOC'] : 100,
+            'charge_priority_hyst' => isset($this->config['CHARGE_PRIORITY_HYST']) ? $this->config['CHARGE_PRIORITY_HYST'] : 5,
         );
     }
 
@@ -654,6 +669,17 @@ EOD;
             if ($latched && $soc <= $lo) $latched = false;
             $this->config['SURPLUS_LATCHED'] = $latched ? 1 : 0;
             $this->saveConfig();
+        }
+
+        // Maintain the charge-priority latch (same pure rule the planner used).
+        // SOC unknown => keep the previous latch value (no information).
+        if (!empty($this->config['CHARGE_PRIORITY_ENABLED']) && $snapshot['battery_soc'] !== null) {
+            $cp = Planner::evalChargePriority($snapshot, $this->plannerConfig());
+            $newLatch = $cp['released'] ? 1 : 0;
+            if ((int) (isset($this->config['CHARGE_RELEASED_LATCHED']) ? $this->config['CHARGE_RELEASED_LATCHED'] : 0) !== $newLatch) {
+                $this->config['CHARGE_RELEASED_LATCHED'] = $newLatch;
+                $this->saveConfig();
+            }
         }
 
         // Persist telemetry + decision (history).
@@ -686,6 +712,37 @@ EOD;
         }
 
         return array('snapshot' => $snapshot, 'decision' => $decision);
+    }
+
+    /**
+     * Create the missing simple devices and, when every device of the map is
+     * linked afterwards, switch the sync on (otherwise the created devices
+     * would stay empty). Returns array(report, banner_kind, banner_key).
+     */
+    private function provisionSimpleDevices()
+    {
+        if (!SimpleDevices::available()) {
+            return array('report' => array(), 'kind' => 'danger', 'key' => 'SD_UNAVAILABLE');
+        }
+        $map = $this->simpleDevicesMap();
+        $res = SimpleDevices::provision($map);
+        $report = isset($res['report']) && is_array($res['report']) ? $res['report'] : array();
+        $failed = 0;
+        foreach ($report as $v) {
+            if ($v !== 'created' && $v !== 'exists') {
+                $failed++;
+            }
+        }
+        $created = isset($res['created']) ? (int) $res['created'] : 0;
+        if ($failed === 0 && empty($this->config['SIMPLE_DEVICES_ENABLED'])) {
+            $this->config['SIMPLE_DEVICES_ENABLED'] = 1;
+            $this->saveConfig();
+        }
+        if ($failed > 0) {
+            return array('report' => $report, 'kind' => 'danger', 'key' => 'SD_PROVISION_FAIL');
+        }
+        return array('report' => $report, 'kind' => ($created > 0 ? 'success' : 'info'),
+            'key' => ($created > 0 ? 'SD_PROVISIONED' : 'SD_ALL_LINKED'));
     }
 
     /** Resolve the Simple Devices map (admin JSON override or default). */
@@ -909,7 +966,14 @@ EOD;
             }
             // Call the configured MajorDoMo handler (e.g. announce on speaker).
             $handler = isset($this->config['PRESENCE_HANDLER']) ? $this->config['PRESENCE_HANDLER'] : '';
-            if ($handler && function_exists('callMethod')) {
+            if ($handler && strpos($handler, 'script:') === 0 && function_exists('runScript')) {
+                // "script:Title" runs a MajorDoMo script with the same params.
+                runScript(substr($handler, 7), array(
+                    'person'     => isset($ev['person']) ? $ev['person'] : '',
+                    'duration_s' => isset($ev['duration_s']) ? $ev['duration_s'] : 0,
+                    'event'      => isset($ev['event']) ? $ev['event'] : 'long',
+                ));
+            } elseif ($handler && strpos($handler, 'script:') !== 0 && function_exists('callMethod')) {
                 callMethod($handler, array(
                     'person'     => isset($ev['person']) ? $ev['person'] : '',
                     'duration_s' => isset($ev['duration_s']) ? $ev['duration_s'] : 0,
@@ -1082,6 +1146,8 @@ EOD;
         $out['POWER_SOURCE']   = SettingsSaver::esc($st['power_source']);
         $out['POWER_HUMAN']    = SettingsSaver::esc($st['power_human']);
         $out['POWER_RAW']      = SettingsSaver::esc($st['power_raw']);
+        $out['POWER_AGE_F']    = (isset($s['power_age_s']) && $s['power_age_s'] !== null) ? (string) (int) $s['power_age_s'] : '—';
+        $out['POWER_TTL']      = (int) (isset($this->config['POWER_FRESHNESS_TTL_S']) ? $this->config['POWER_FRESHNESS_TTL_S'] : 0);
         $out['SOC_F']          = SettingsSaver::esc($st['soc_f']);
         $out['TARIFF_ACTIVE']  = $st['tariff_active'] ? 1 : 0;
         $out['TARIFF_METER_LOCAL'] = $s['tariff_meter_local'];
@@ -1127,6 +1193,16 @@ EOD;
         // dispatches ajax. Terminates the request.
         if (AjaxApi::isAjaxRequest($_REQUEST)) {
             $this->handleAjax();
+        }
+
+        // Settings introduced after the first install get their defaults here
+        // (install() only seeds keys at install time). Not persisted until the
+        // user saves; the planner reads the same defaults via isset().
+        foreach (array('CHARGE_PRIORITY_ENABLED' => 0, 'CHARGE_PRIORITY_SOC' => 100,
+            'CHARGE_PRIORITY_HYST' => 5, 'CHARGE_RELEASED_LATCHED' => 0, 'ALLOW_BATTERY_HEAT' => 0) as $dk => $dv) {
+            if (!isset($this->config[$dk])) {
+                $this->config[$dk] = $dv;
+            }
         }
 
         $op = isset($_REQUEST['op']) ? $_REQUEST['op'] : '';
@@ -1238,7 +1314,10 @@ EOD;
                 $out['CMD_RESULT'] = $this->opButton('Boiler Lease Renew');
                 break;
             case 'provision_simple_devices':
-                $out['PROVISION_RESULT'] = SimpleDevices::provision($this->simpleDevicesMap());
+                $pr = $this->provisionSimpleDevices();
+                $out['PROVISION_RESULT'] = 1;
+                $out['PROVISION_KIND'] = $pr['kind'];
+                $out['PROVISION_KEY'] = $pr['key'];
                 break;
         }
         if (AjaxApi::classify($op) === 'mutating') {
@@ -1270,6 +1349,34 @@ EOD;
         $out['SOLAR_SURPLUS_ENABLED'] = !empty($this->config['SOLAR_SURPLUS_ENABLED']) ? 1 : 0;
         $out['SIMPLE_DEVICES_ENABLED'] = !empty($this->config['SIMPLE_DEVICES_ENABLED']) ? 1 : 0;
         $out['SIMPLE_DEVICES_AVAILABLE'] = SimpleDevices::available() ? 1 : 0;
+        if ($tab === 'advanced') {
+            // Link status of every simple device of the effective map, so the
+            // "create" button is offered only when something is not linked yet.
+            $sdRows = array();
+            $sdMissing = 0;
+            foreach (SimpleDevices::linkStatus($this->simpleDevicesMap()) as $key => $row) {
+                if (!$row['linked']) {
+                    $sdMissing++;
+                }
+                $sdRows[] = array(
+                    'KEY'          => SettingsSaver::esc($key),
+                    'OBJECT'       => SettingsSaver::esc($row['object']),
+                    'TITLE'        => SettingsSaver::esc($row['title']),
+                    'TYPE'         => SettingsSaver::esc($row['type']),
+                    'LINKED'       => $row['linked'] ? 1 : 0,
+                    'DEVICE_ID'    => (int) $row['device_id'],
+                    'DEVICE_TITLE' => SettingsSaver::esc($row['device_title']),
+                );
+            }
+            $out['SD_ROWS'] = $sdRows;
+            $out['SD_MISSING'] = $sdMissing;
+            $out['SD_HAS_MISSING'] = $sdMissing > 0 ? 1 : 0;
+            $out['SD_DEFAULT_MAP'] = SettingsSaver::esc(json_encode(SimpleDevices::defaultMap(),
+                JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $out['WIFI_OBS_JSON'] = SettingsSaver::esc((string) Repository::readProperty(
+                (isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler') . '.wifiObservationsJson'));
+            $out['OPTS_HANDLERS_DATALIST'] = $this->handlerDatalistHtml();
+        }
         $hv = Transport::validateHost(isset($this->config['ESP_HOST']) ? $this->config['ESP_HOST'] : '');
         $out['HOST_OK'] = !empty($hv['ok']) ? 1 : 0;
         $out['HOST_REASON'] = $hv['reason'];
@@ -1421,6 +1528,10 @@ EOD;
             'BOILER_STATE'  => $read('text_sensor', 'Boiler State'),
             'REQ_TARGET'    => $read('number', 'Boiler Requested Target'),
             'REQ_MODE'      => $read('select', 'Boiler Requested Mode'),
+            // Actual values reported BY the boiler (read-only, firmware >= 1.9.0);
+            // REQ_* above are only what the module asked through the guard.
+            'BOILER_SETPOINT' => $read('sensor', 'Boiler Setpoint'),
+            'BOILER_MODE'     => $read('text_sensor', 'Boiler Mode'),
             // Pairing diagnostics (local firmware modification, see UPSTREAM.md).
             'PAIR_TRACE'       => $read('text_sensor', 'Boiler Pair Trace'),
             'LAST_DISCONNECT'  => $read('text_sensor', 'Boiler Last Disconnect'),
@@ -1727,8 +1838,9 @@ EOD;
                 $banner = $this->banner('info', 'SCAN_FOUND');
                 break;
             case 'provision_simple_devices':
-                $result = array('report' => SimpleDevices::provision($this->simpleDevicesMap()));
-                $banner = $this->banner('success', 'SD_PROVISIONED');
+                $pr = $this->provisionSimpleDevices();
+                $result = array('report' => $pr['report'], 'reload' => true);
+                $banner = $this->banner($pr['kind'], $pr['key']);
                 break;
         }
         // Whatever the op did, the ESP state may have changed: next read refetches.
@@ -2122,6 +2234,36 @@ EOD;
      * @param array $props flat list of "Object.Property" strings
      * @return string
      */
+    /**
+     * <datalist id="ds-handlers"> options for the presence handler: every
+     * object-level method as "Object.method" and every MajorDoMo script as
+     * "script:Title". Class methods inherited by objects are not listed (the
+     * list would explode); they can still be typed as "Object.method".
+     */
+    private function handlerDatalistHtml()
+    {
+        $items = array();
+        if (function_exists('SQLSelect')) {
+            $rows = SQLSelect("SELECT o.TITLE AS OBJ, m.TITLE AS METH FROM methods m
+                INNER JOIN objects o ON o.ID = m.OBJECT_ID
+                WHERE m.OBJECT_ID > 0 AND o.TITLE IS NOT NULL AND m.TITLE IS NOT NULL");
+            if (is_array($rows)) {
+                foreach ($rows as $r) {
+                    $items[] = $r['OBJ'] . '.' . $r['METH'];
+                }
+            }
+            $scripts = SQLSelect("SELECT TITLE FROM scripts WHERE TITLE IS NOT NULL");
+            if (is_array($scripts)) {
+                foreach ($scripts as $r) {
+                    $items[] = 'script:' . $r['TITLE'];
+                }
+            }
+        }
+        $items = array_values(array_unique($items));
+        sort($items, SORT_STRING | SORT_FLAG_CASE);
+        return $this->propertyDatalistHtml($items);
+    }
+
     private function propertyDatalistHtml($props)
     {
         $html = '';

@@ -37,33 +37,86 @@ class SimpleDevices
      */
     public static function defaultMap()
     {
+        // "type" = simple-device TYPE KEY of the MajorDoMo devices dictionary
+        // (modules/devices/devices_structure.inc.php), NOT a class name.
         return array(
             'thermostat' => array(
-                'type'   => 'SThermostats',
+                'type'   => 'thermostat',
                 'object' => 'DraziceBoiler',
                 'title'  => 'Drazice Boiler',
             ),
             'temp_lower' => array(
-                'type'   => 'STempHumSensors',
+                'type'   => 'sensor_temp',
                 'object' => 'DraziceBoilerTempLower',
                 'title'  => 'Drazice Boiler Temp Lower',
             ),
             'energy' => array(
-                'type'   => 'SPowerSensors',
+                'type'   => 'sensor_general',
                 'object' => 'DraziceBoilerEnergy',
-                'title'  => 'Drazice Boiler Energy',
+                'title'  => 'Drazice Boiler Energy, kWh',
             ),
             'battery_soc' => array(
-                'type'   => 'SSensors',
+                'type'   => 'sensor_percentage',
                 'object' => 'DraziceBoilerSoc',
-                'title'  => 'Drazice Boiler SOC',
-            ),
-            'hdo' => array(
-                'type'   => 'SControllers',
-                'object' => 'DraziceBoilerHdo',
-                'title'  => 'Drazice Boiler HDO',
+                'title'  => 'Drazice Boiler Battery SOC',
             ),
         );
+    }
+
+    /**
+     * Older builds stored CLASS names as "type" (that never matched the devices
+     * dictionary, so nothing was ever created). Map them to type keys so a map
+     * saved by an older version still works. Unknown values pass through.
+     */
+    public static function normalizeType($type)
+    {
+        $legacy = array(
+            'SThermostats'      => 'thermostat',
+            'STempHumSensors'   => 'sensor_temp',
+            'STempSensors'      => 'sensor_temp',
+            'SPowerSensors'     => 'sensor_general',
+            'SSensors'          => 'sensor_general',
+            'SPercentageSensors' => 'sensor_percentage',
+            'SStateSensors'     => 'sensor_state',
+        );
+        $type = (string) $type;
+        return isset($legacy[$type]) ? $legacy[$type] : $type;
+    }
+
+    /**
+     * Which map entries already have a simple device LINKED to their object.
+     * Returns key => array(object, title, type, linked(bool), device_id, device_title).
+     * Pure DB read; empty linked flags when the DB is not available.
+     */
+    public static function linkStatus($map)
+    {
+        $out = array();
+        foreach ($map as $key => $d) {
+            $object = isset($d['object']) ? (string) $d['object'] : '';
+            $row = array(
+                'object'       => $object,
+                'title'        => isset($d['title']) ? (string) $d['title'] : $object,
+                'type'         => self::normalizeType(isset($d['type']) ? $d['type'] : ''),
+                'linked'       => false,
+                'device_id'    => 0,
+                'device_title' => '',
+            );
+            if ($object !== '' && function_exists('SQLSelectOne')) {
+                $dev = SQLSelectOne("SELECT ID, TITLE FROM devices WHERE LINKED_OBJECT='" . self::sql($object) . "'");
+                if (is_array($dev) && !empty($dev['ID'])) {
+                    $row['linked'] = true;
+                    $row['device_id'] = (int) $dev['ID'];
+                    $row['device_title'] = (string) $dev['TITLE'];
+                }
+            }
+            $out[$key] = $row;
+        }
+        return $out;
+    }
+
+    private static function sql($s)
+    {
+        return function_exists('DBSafe') ? DBSafe($s) : addslashes($s);
     }
 
     /** Is the Devices runtime available? */
@@ -84,26 +137,51 @@ class SimpleDevices
             return array('ok' => false, 'reason' => 'devices_runtime_unavailable');
         }
         $dv = new \devices();
+        if (method_exists($dv, 'setDictionary')) {
+            $dv->setDictionary();
+        }
+        $types = (isset($dv->device_types) && is_array($dv->device_types)) ? $dv->device_types : array();
+        $status = self::linkStatus($map);
+        $created = 0;
         foreach ($map as $key => $d) {
-            $object = isset($d['object']) ? $d['object'] : '';
-            $type = isset($d['type']) ? $d['type'] : '';
-            $title = isset($d['title']) ? $d['title'] : $object;
+            $object = isset($d['object']) ? (string) $d['object'] : '';
+            $type = self::normalizeType(isset($d['type']) ? $d['type'] : '');
+            $title = isset($d['title']) ? (string) $d['title'] : $object;
             if ($object === '' || $type === '') {
                 $report[$key] = 'skipped_no_object_or_type';
                 continue;
             }
-            // Idempotent: if an object already exists, do not recreate.
-            if (function_exists('getObject') && getObject($object)) {
+            // Idempotent: a simple device already linked to this object.
+            if (!empty($status[$key]['linked'])) {
                 $report[$key] = 'exists';
                 continue;
             }
-            $res = $dv->addDevice($type, array(
-                'TITLE'         => $title,
-                'LINKED_OBJECT' => $object,
-            ));
-            $report[$key] = $res ? 'created' : 'add_failed';
+            if (!isset($types[$type]['CLASS'])) {
+                $report[$key] = 'unknown_type';
+                continue;
+            }
+            // NOT devices::addDevice(): in MajorDoMo core it resets $rec right
+            // after taking LINKED_OBJECT, so the device would be linked to a new
+            // auto-named object instead of ours. Create the object of the type's
+            // class (if missing) and the devices row with the right link.
+            $class = $types[$type]['CLASS'];
+            if (function_exists('getObject') && !getObject($object)) {
+                if (!function_exists('addClassObject')) {
+                    $report[$key] = 'add_failed';
+                    continue;
+                }
+                addClassObject($class, $object);
+            }
+            $rec = array('TYPE' => $type, 'TITLE' => $title, 'LINKED_OBJECT' => $object);
+            $id = function_exists('SQLInsert') ? SQLInsert('devices', $rec) : 0;
+            if ($id) {
+                $created++;
+                $report[$key] = 'created';
+            } else {
+                $report[$key] = 'add_failed';
+            }
         }
-        return array('ok' => true, 'report' => $report);
+        return array('ok' => true, 'created' => $created, 'report' => $report);
     }
 
     /**
