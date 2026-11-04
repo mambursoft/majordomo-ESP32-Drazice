@@ -32,6 +32,17 @@
 - Прошивка: публічний wrapper `hdo_enable_public()` у vendored smartboiler
   (protected `on_set_hdo_enabled` недоступний з lambda). Компіляція SUCCESS,
   RAM 19.1%.
+- `SceneBuilder`: `SQLInsert('scenes', ...)` приймає масив by-reference у
+  цьому ядрі MajorDoMo — передаємо змінну, не літерал.
+
+### Перевірено на продакшені (172.16.0.140)
+
+- Об'єкт `EspBoiler` створено (44 властивості).
+- Прості пристрої: 4/4 створено й прив'язано (thermostat, temp_lower, energy,
+  battery_soc) — покази тепер пишуться.
+- Сцена «Drazice Boiler»: 14 плиток.
+- HDO on/off на ESP32 (172.16.0.70): press On -> HDO=ON, press Off -> OFF.
+- Планувальник: цикл відпрацьовує (battery_source_block на живленні від акб).
 
 ## [1.9.2] — 2026-11-04
 

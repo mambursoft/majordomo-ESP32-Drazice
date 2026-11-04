@@ -65,14 +65,17 @@ class SceneBuilder
             // TITLE prefix, so we only drop ours, tagged SYSTEM='drazice').
             self::deleteAutoElements($sceneId);
         } else {
-            $sceneId = (int) SQLInsert('scenes', array(
+            // SQLInsert takes its array by reference in this MajorDoMo build:
+            // pass a variable, never an array literal.
+            $sceneRec = array(
                 'TITLE'      => self::SCENE_TITLE,
                 'BACKGROUND' => '',
                 'PRIORITY'   => 0,
                 'HIDDEN'     => 0,
                 'AUTO_SCALE' => 1,
                 'SYSTEM'     => 'drazice',
-            ));
+            );
+            $sceneId = (int) SQLInsert('scenes', $sceneRec);
             if (!$sceneId) {
                 return array('ok' => false, 'detail' => 'scene insert failed');
             }
