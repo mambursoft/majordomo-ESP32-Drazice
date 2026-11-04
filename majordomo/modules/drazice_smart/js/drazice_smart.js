@@ -867,6 +867,167 @@
     }
   }
 
+  // ------------------------------------------------- invalid field highlight
+
+  // The input named `name`: inside the submitted form first, else anywhere on the page.
+  function findField(form, name) {
+    var f = null;
+    if (!name) {
+      return null;
+    }
+    if (form && form.elements) {
+      f = form.elements[name] || null;
+      if (f && f.length !== undefined && !f.tagName) {
+        f = f[0] || null; // RadioNodeList
+      }
+    }
+    if (!f) {
+      f = document.querySelector('[name="' + name.replace(/["\\]/g, '') + '"]');
+    }
+    return f;
+  }
+
+  // Nearest .form-group (or the direct parent) of a field.
+  function fieldGroup(f) {
+    var n = f;
+    while (n && n !== document.body) {
+      if (n.className && (' ' + n.className + ' ').indexOf(' form-group ') !== -1) {
+        return n;
+      }
+      n = n.parentNode;
+    }
+    return f ? f.parentNode : null;
+  }
+
+  // Human label of a field (text of its <label>), '' if none.
+  function fieldLabel(f) {
+    var g = fieldGroup(f);
+    var lab = g ? g.querySelector('label') : null;
+    var s = lab ? String(lab.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    return s.replace(/[:\s]+$/, '');
+  }
+
+  function markFieldError(f) {
+    var g = fieldGroup(f);
+    if (g && (' ' + g.className + ' ').indexOf(' has-error ') === -1) {
+      g.className = (g.className ? g.className + ' ' : '') + 'has-error ds-field-error';
+    }
+    f.setAttribute('aria-invalid', 'true');
+    if (!f.getAttribute('data-ds-err-bound')) {
+      f.setAttribute('data-ds-err-bound', '1');
+      var off = function () { unmarkFieldError(f); };
+      f.addEventListener('input', off);
+      f.addEventListener('change', off);
+    }
+  }
+
+  function unmarkFieldError(f) {
+    var g = fieldGroup(f);
+    if (g && g.className) {
+      g.className = (' ' + g.className + ' ').replace(/ has-error /g, ' ').replace(/ ds-field-error /g, ' ').trim();
+    }
+    f.removeAttribute('aria-invalid');
+  }
+
+  function clearFieldErrors(root) {
+    var nodes = all('[aria-invalid="true"]', root || document);
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      unmarkFieldError(nodes[i]);
+    }
+  }
+
+  function revealField(f) {
+    if (!f) {
+      return;
+    }
+    if (f.scrollIntoView) {
+      f.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+    try { f.focus({ preventScroll: true }); } catch (e) { f.focus(); }
+  }
+
+  // One banner line: clickable field label + technical name + reason + what was entered.
+  function fillErrorItem(li, form, name, reason, entered) {
+    var f = findField(form, name);
+    var label = f ? fieldLabel(f) : '';
+    var a;
+    if (f) {
+      markFieldError(f);
+      a = el('a', '', label || name);
+      a.setAttribute('href', '#');
+      a.style.fontWeight = 'bold';
+      a.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        revealField(f);
+      });
+      li.appendChild(a);
+      if (label) {
+        li.appendChild(document.createTextNode(' '));
+        li.appendChild(el('code', '', name));
+      }
+    } else {
+      li.appendChild(el('code', '', name));
+    }
+    li.appendChild(document.createTextNode(' - ' + reason));
+    if (entered !== undefined) {
+      li.appendChild(document.createTextNode(' (' + t('SAVE_ENTERED') + ' '));
+      li.appendChild(el('code', '', (entered === null || entered === '') ? t('SAVE_EMPTY') : String(entered)));
+      li.appendChild(document.createTextNode(')'));
+    }
+  }
+
+  function focusFirstError(form, name) {
+    revealField(findField(form, name));
+  }
+
+  // Server-rendered (non-AJAX) error banner: <li data-ds-err-field="NAME">.
+  function decorateServerErrors() {
+    var items = all('[data-ds-err-field]');
+    var i;
+    var first = '';
+    var li;
+    var name;
+    var reason;
+    for (i = 0; i < items.length; i++) {
+      li = items[i];
+      name = li.getAttribute('data-ds-err-field');
+      reason = li.getAttribute('data-ds-err-reason') || '';
+      clear(li);
+      fillErrorItem(li, null, name, reason, undefined);
+      if (!first) {
+        first = name;
+      }
+    }
+    if (first) {
+      focusFirstError(null, first);
+    }
+  }
+
+  // <input type="checkbox" data-ds-toggles="ID">: the <fieldset id="ID"> is
+  // disabled while the box is unchecked. Disabled inputs are not submitted, so
+  // the stored values stay as they were and cannot fail validation.
+  function bindToggles() {
+    var boxes = all('input[type="checkbox"][data-ds-toggles]');
+    var i;
+    for (i = 0; i < boxes.length; i++) {
+      (function (box) {
+        var target = byId(box.getAttribute('data-ds-toggles'));
+        if (!target) {
+          return;
+        }
+        var sync = function () {
+          target.disabled = !box.checked;
+          if (target.disabled) {
+            clearFieldErrors(target);
+          }
+        };
+        box.addEventListener('change', sync);
+        sync();
+      })(boxes[i]);
+    }
+  }
+
   var RELOAD_OPS = ['enable_automation', 'disable_automation', 'set_dry_run'];
 
   function handleMutation(op, form, resp) {
@@ -888,6 +1049,7 @@
 
     if (op === 'save_settings') {
       writeBackRejected(form, result.rejected);
+      clearFieldErrors(form);
       list = result.errors || [];
       if (list.length > 0) {
         alertEl = bannerShow('danger', t('SAVE_FAIL'), '');
@@ -896,12 +1058,13 @@
           ul.style.margin = '6px 0 0 0';
           for (i = 0; i < list.length; i++) {
             li = el('li');
-            li.appendChild(el('code', '', textOf(list[i].field)));
-            li.appendChild(document.createTextNode(' - ' + (list[i].reason === 'json' ? t('SAVE_ERR_JSON') : t('SAVE_ERR_NUM'))));
+            fillErrorItem(li, form, String(list[i].field), list[i].reason === 'json' ? t('SAVE_ERR_JSON') : t('SAVE_ERR_NUM'),
+              (result.rejected && isPrimitive(result.rejected[list[i].field])) ? result.rejected[list[i].field] : undefined);
             ul.appendChild(li);
           }
           alertEl.appendChild(ul);
         }
+        focusFirstError(form, list.length ? String(list[0].field) : '');
         return;
       }
       bannerShow('success', t('SAVE_OK'), '');
@@ -1011,6 +1174,8 @@
     var loader = loaderForTab();
 
     decorateAll(); // server-rendered raw state codes -> translated badges
+    decorateServerErrors(); // highlight fields named in a server-rendered save error
+    bindToggles(); // master checkboxes that enable/disable a whole block
 
     if (refresh) {
       refresh.addEventListener('click', function () {

@@ -1,6 +1,10 @@
 <!-- Drazice SMART Admin. Uses the MajorDoMo template parser tags (variable, if/else/endif, begin/end loops). Do not write literal tag syntax in comments: the parser would execute it. -->
 <style>
   .ds-root code { color:#444; background:#f2f3f5; }
+  .ds-root .ds-field-error .form-control { border-color:#a94442; border-width:2px; box-shadow:0 0 0 3px rgba(169,68,66,.25); background:#fdf3f3; }
+  .ds-root .ds-field-error > label { color:#a94442; }
+  .ds-root fieldset.ds-togglable { border:0; margin:0; padding:0; min-width:0; }
+  .ds-root fieldset.ds-togglable[disabled] { opacity:.45; }
   .ds-root .form-inline .form-control { display:inline-block; width:auto; max-width:300px; vertical-align:middle; }
   .ds-root .form-inline select.form-control { max-width:360px; }
   .ds-root .ds-help { display:block; margin-top:4px; color:#777; font-size:12px; font-weight:normal; }
@@ -42,7 +46,7 @@
     <span class="glyphicon glyphicon-remove-sign"></span> <strong><#LANG_DS_SAVE_FAIL#></strong>
     <ul style="margin:6px 0 0 0;">
     [#begin SAVE_ERRORS#]
-      <li><code>[#FIELD#]</code> — [#REASON#]</li>
+      <li data-ds-err-field="[#FIELD#]" data-ds-err-reason="[#REASON#]"><code>[#FIELD#]</code> — [#REASON#]</li>
     [#end SAVE_ERRORS#]
     </ul>
   </div>
@@ -348,7 +352,7 @@
   <datalist id="ds-props">[#OPTS_PROPS_DATALIST#]</datalist>
   <p class="text-muted"><#LANG_DS_EN_INTRO#></p>
   <form method="post" action="?tab=policy">
-    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED,ALLOW_BATTERY_HEAT,CHARGE_PRIORITY_ENABLED">
+    <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="SOLAR_SURPLUS_ENABLED,ALLOW_BATTERY_HEAT,CHARGE_PRIORITY_ENABLED,TARIFF_ENABLED">
     <div class="row">
       <!-- 1. Comfort and targets -->
       <div class="col-lg-6"><div class="panel panel-default">
@@ -366,7 +370,9 @@
       <div class="col-lg-6"><div class="panel panel-default">
         <div class="panel-heading"><strong><span class="glyphicon glyphicon-time"></span> <#LANG_DS_POLICY_TARIFF#></strong></div>
         <div class="panel-body">
-          <p class="ds-help" style="margin-top:0;"><#LANG_DS_TAR_INTRO#></p>
+          <div class="checkbox" style="margin-top:0;"><label><input type="checkbox" id="ds-tariff-enabled" name="TARIFF_ENABLED" value="1" data-ds-toggles="ds-tariff-fields" [#if CFG_TARIFF_ENABLED="1"#]checked[#endif#]> <strong><#LANG_DS_TARIFF_ENABLE#></strong></label></div>
+          <p class="ds-help" style="margin-top:0;"><#LANG_DS_TAR_INTRO#> <#LANG_DS_H_TARIFF_ENABLE#></p>
+          <fieldset id="ds-tariff-fields" class="ds-togglable" [#if CFG_TARIFF_ENABLED="1"#]data-on="1"[#else#]disabled[#endif#]>
           <div class="row">
             <div class="col-sm-4 form-group"><label><#LANG_DS_NIGHT_TARGET#></label><input class="form-control" type="number" name="NIGHT_TARGET_C" value="[#CFG_NIGHT_TARGET_C#]"><span class="ds-help"><#LANG_DS_H_NIGHT_TARGET#></span></div>
             <div class="col-sm-4 form-group"><label><#LANG_DS_CHEAP_START#></label>
@@ -383,7 +389,6 @@
             </div>
           </div>
           <div class="row">
-            <div class="col-sm-6 form-group"><label><#LANG_DS_TIMEZONE#></label><select class="form-control" name="TIMEZONE">[#OPTS_TIMEZONE#]</select></div>
             <div class="col-sm-6 form-group"><label><#LANG_DS_METER_OFFSET#></label><input class="form-control" type="number" name="METER_OFFSET_SECONDS" value="[#CFG_METER_OFFSET_SECONDS#]"><span class="ds-help"><#LANG_DS_H_METER_OFFSET#></span></div>
           </div>
           <div class="row">
@@ -391,7 +396,11 @@
             <div class="col-sm-6 form-group"><label><#LANG_DS_END_GUARD#></label><input class="form-control" type="number" name="END_GUARD_SECONDS" value="[#CFG_END_GUARD_SECONDS#]"></div>
           </div>
           <span class="ds-help"><#LANG_DS_H_GUARD#></span>
-          <p style="font-size:12px;margin:8px 0 0 0;"><#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="ds-st ds-st-ok"><#LANG_DS_TARIFF_CHEAP_NOW#></span>[#else#]<span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_DAY_NOW#></span>[#endif#]</p>
+          </fieldset>
+          <p style="font-size:12px;margin:8px 0 0 0;">[#if CFG_TARIFF_ENABLED="1"#]<#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="ds-st ds-st-ok"><#LANG_DS_TARIFF_CHEAP_NOW#></span>[#else#]<span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_DAY_NOW#></span>[#endif#][#else#]<#LANG_DS_ST_TARIFF#>: <span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_OFF#></span>[#endif#]</p>
+          <div class="row" style="margin-top:10px;">
+            <div class="col-sm-6 form-group"><label><#LANG_DS_TIMEZONE#></label><select class="form-control" name="TIMEZONE">[#OPTS_TIMEZONE#]</select><span class="ds-help"><#LANG_DS_H_TIMEZONE#></span></div>
+          </div>
         </div>
       </div></div>
     </div>

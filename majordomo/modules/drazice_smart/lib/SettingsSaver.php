@@ -38,6 +38,7 @@ class SettingsSaver
             'checkbox' => array(
                 'ESP_DIGEST', 'ALLOW_BATTERY_HEAT', 'SOLAR_SURPLUS_ENABLED',
                 'PRESENCE_ENABLED', 'SIMPLE_DEVICES_ENABLED', 'CHARGE_PRIORITY_ENABLED',
+                'TARIFF_ENABLED',
             ),
             'text' => array(
                 'ESP_HOST', 'ESP_USER', 'TIMEZONE', 'POWER_PROPERTY', 'BATTERY_ACTIVE_VALUE',

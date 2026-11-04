@@ -382,6 +382,14 @@ $dictionary = array(
     'DS_STR_BLE_RECONNECT' => 'BLE reconnect requested',
     'DS_ACT_HEAT'         => 'heat',
     'DS_ACT_HOLD'         => 'do not heat',
+    // 1.9.1: save error highlight
+    'DS_SAVE_ENTERED'     => 'entered:',
+    'DS_SAVE_EMPTY'       => 'empty',
+    // 1.9.1: tariff master switch
+    'DS_TARIFF_ENABLE'    => 'Use the cheap (night) tariff',
+    'DS_H_TARIFF_ENABLE'  => 'When off, no tariff-driven night heating happens and the fields below are neither validated nor changed (stored values are kept). Day/night for solar surplus is then 07:00–23:00 in the timezone.',
+    'DS_TARIFF_OFF'       => 'not used',
+    'DS_H_TIMEZONE'       => 'Needed even without the tariff: it defines day/night.',
 );
 
 foreach ($dictionary as $k => $v) {

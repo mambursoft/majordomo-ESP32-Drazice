@@ -33,7 +33,7 @@ use DraziceSmart\AjaxApi;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.9.0';
+    const MODULE_VERSION = '1.9.1';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -248,6 +248,7 @@ class drazice_smart extends module
             'BOOST_TARGET_C'       => 65,
             'ABSOLUTE_MAX_C'       => 70,
             // tariff
+            'TARIFF_ENABLED'       => 1,     // 0 = ignore the cheap window entirely
             'TIMEZONE'             => 'Europe/Kyiv',
             'CHEAP_START_HOUR'     => 23,
             'CHEAP_START_MIN'      => 5,
@@ -572,20 +573,15 @@ EOD;
         $socRaw = Repository::readProperty(isset($this->config['SOC_PROPERTY']) ? $this->config['SOC_PROPERTY'] : '');
         $soc = PolicyEngine::validSoc($socRaw);
 
-        // Tariff.
-        $tariff = Tariff::evaluate($now, array(
-            'timezone'            => $this->config['TIMEZONE'],
-            'cheap_start_hour'    => $this->config['CHEAP_START_HOUR'],
-            'cheap_start_min'     => isset($this->config['CHEAP_START_MIN']) ? $this->config['CHEAP_START_MIN'] : 0,
-            'cheap_end_hour'      => $this->config['CHEAP_END_HOUR'],
-            'cheap_end_min'       => isset($this->config['CHEAP_END_MIN']) ? $this->config['CHEAP_END_MIN'] : 0,
-            'meter_offset_seconds' => $this->config['METER_OFFSET_SECONDS'],
-            'start_guard_seconds' => $this->config['START_GUARD_SECONDS'],
-            'end_guard_seconds'   => $this->config['END_GUARD_SECONDS'],
-        ));
+        // Tariff (optional: TARIFF_ENABLED=0 ignores the cheap window).
+        $tariffOn = !isset($this->config['TARIFF_ENABLED']) || !empty($this->config['TARIFF_ENABLED']);
+        $tariff = Tariff::evaluate($now, self::tariffConfig($this->config, $tariffOn));
 
-        // Daytime = NOT cheap window (simplified: cheap window is night).
+        // Daytime = NOT night window (with the tariff off: fixed 23:00-07:00).
         $isDaytime = empty($tariff['active']);
+        if (!$tariffOn) {
+            $tariff = array('active' => false, 'reason' => 'tariff_disabled', 'meter_local' => $tariff['meter_local']);
+        }
 
         // Boost.
         $boostActive = (isset($this->config['BOOST_UNTIL_UTC']) && (int) $this->config['BOOST_UNTIL_UTC'] > $now);
@@ -1694,6 +1690,36 @@ EOD;
             'last_disconnect_raw' => $d['LAST_DISCONNECT'],
             'last_disconnect'    => empty($disc) ? new \stdClass() : $disc,
             'has_trace'          => ($trace !== null && $trace !== '' && $trace !== '-'),
+        );
+    }
+
+    /**
+     * Tariff::evaluate config. With the tariff on: the configured cheap window.
+     * With it off: a fixed 23:00-07:00 night (no offset/guards) used only to
+     * tell day from night; the caller then forces tariff_active=false.
+     */
+    public static function tariffConfig(array $c, $tariffOn)
+    {
+        $tz = isset($c['TIMEZONE']) ? $c['TIMEZONE'] : 'Europe/Kyiv';
+        if (!$tariffOn) {
+            return array(
+                'timezone' => $tz, 'cheap_start_hour' => 23, 'cheap_start_min' => 0,
+                'cheap_end_hour' => 7, 'cheap_end_min' => 0, 'meter_offset_seconds' => 0,
+                'start_guard_seconds' => 0, 'end_guard_seconds' => 0,
+            );
+        }
+        $g = function ($k, $d) use ($c) {
+            return (isset($c[$k]) && is_numeric($c[$k])) ? $c[$k] : $d;
+        };
+        return array(
+            'timezone'             => $tz,
+            'cheap_start_hour'     => $g('CHEAP_START_HOUR', 23),
+            'cheap_start_min'      => $g('CHEAP_START_MIN', 0),
+            'cheap_end_hour'       => $g('CHEAP_END_HOUR', 7),
+            'cheap_end_min'        => $g('CHEAP_END_MIN', 0),
+            'meter_offset_seconds' => $g('METER_OFFSET_SECONDS', 0),
+            'start_guard_seconds'  => $g('START_GUARD_SECONDS', 0),
+            'end_guard_seconds'    => $g('END_GUARD_SECONDS', 0),
         );
     }
 
