@@ -27,6 +27,13 @@
 `smartboiler.cpp` не змінювався — зміна стосується лише нашого codegen, а не
 upstream BLE-протоколу.
 
+**Локальна модифікація (pairing-trace):** у `smartboiler.h`, `smartboiler.cpp`
+і `__init__.py` додано діагностику парингу (кільцева траса подій, причина
+розриву GATT, лічильники запитів PIN і перебудов лінка; нові entity
+`Boiler Pair Trace`, `Boiler Last Disconnect`, `Boiler Pair Attempts`,
+`Boiler Connect Count`) та редагування PIN у DEBUG-логу. BLE-протокол і логіка
+спарювання не змінені. Деталі — `firmware/components/smartboiler/UPSTREAM.md`.
+
 ## 2. ESPHome
 
 - https://esphome.io — ліцензії MIT (ядро) та GPLv3 (окремі частини).

@@ -265,6 +265,16 @@ $dictionary = array(
     'DS_SCAN_NEED_BASE_IP' => 'Provide a base network IP (e.g. 172.16.0.1) - auto-detection failed.',
     'DS_BLE_OPTIONAL'    => 'The BLE scanner is optional and is not available on this firmware. It is usually not needed - the boiler connects by its stored MAC.',
     'DS_SD_USUALLY_EMPTY' => 'Usually leave empty. Fill in the map only if you know why you need it.',
+    // Pairing trace
+    'DS_PAIR_TRACE_TITLE' => 'Pairing trace (what the ESP32 sees)',
+    'DS_PAIR_EXPLAIN' => 'The PIN on the boiler display changes on EVERY new BLE connection. Enter the PIN that is shown right now. If the state flips to "Disconnected" after you submit, the link was rebuilt and the display now shows a new PIN: enter that one.',
+    'DS_PAIR_LAST_DISC' => 'Last disconnect',
+    'DS_PAIR_ATTEMPTS' => 'PIN prompts since boot',
+    'DS_PAIR_CONNECTS' => 'BLE link rebuilds',
+    'DS_PAIR_NO_DATA' => 'No data (ESP32 unreachable or firmware without pairing diagnostics).',
+    'DS_PAIR_STALE_WARN' => 'The boiler issued a new PIN: the link was rebuilt while you were typing. The PIN you entered is stale - enter the one on the display now.',
+    'DS_PAIR_AFTER_SUBMIT' => 'Latest events after submit',
+    'DS_PAIR_LEGEND' => 'CONN - BLE connected; AUTH_TX - authorization request; REQ_PIN - boiler asks for a PIN; PIN_RX/PIN_Q/PIN_TX - PIN received/queued/written to the boiler; RES=1 - PIN accepted; DISC(r=code,state) - disconnect (NP = was waiting for PIN).',
 );
 
 foreach ($dictionary as $k => $v) {

@@ -3,6 +3,7 @@
 #ifndef SMARTBOILER_H
 #define SMARTBOILER_H
 
+#include <cstdarg>
 #include "esphome/core/component.h"
 #include "esphome/components/ble_client/ble_client.h"
 #include "esphome/components/text_sensor/text_sensor.h"
@@ -56,6 +57,11 @@ class SmartBoiler : public PollingComponent,
   void set_state(text_sensor::TextSensor *t) { state_txt_ = t; }
   void set_version(text_sensor::TextSensor *t) { version_ = t; }
   void set_name(text_sensor::TextSensor *t) { name_ = t; }
+  // LOCAL MODIFICATION (pairing diagnostics, see UPSTREAM.md)
+  void set_pair_trace(text_sensor::TextSensor *t) { pair_trace_txt_ = t; }
+  void set_last_disconnect(text_sensor::TextSensor *t) { last_disconnect_txt_ = t; }
+  void set_pair_attempts(sensor::Sensor *s) { pair_attempts_sensor_ = s; }
+  void set_connect_count(sensor::Sensor *s) { connect_count_sensor_ = s; }
 
  protected:
   void set_uid(const std::string &uid) { this->uid_ = uid; }
@@ -78,6 +84,14 @@ class SmartBoiler : public PollingComponent,
   const char *day_to_string(uint8_t day);
   uint8_t convert_action_to_mode(const std::string &payload);
   std::string convert_mode_to_action(const uint8_t mode);
+
+  // LOCAL MODIFICATION: pairing diagnostics. Fixed buffers only, event-driven.
+  // Never records PIN digits (at most the digit count of the numeric value).
+  void trace_(const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+  void trace_publish_();
+  void record_disconnect_(int reason);
+  const char *state_code_(ConnectionState state);
+  const char *state_name_(ConnectionState state);
 
   ESPPreferenceObject pref_;
   // state of the connection
@@ -107,6 +121,23 @@ class SmartBoiler : public PollingComponent,
   SmartBoilerModeSelect *mode_select_ = nullptr;
   SmartBoilerThermostat *thermostat_ = nullptr;
   SmartBoilerPinInput *mPin_ = nullptr;
+
+  // Pairing diagnostics (LOCAL MODIFICATION).
+  static const uint8_t TRACE_SLOTS = 10;
+  static const uint8_t TRACE_SLOT_LEN = 26;
+  text_sensor::TextSensor *pair_trace_txt_ = nullptr;
+  text_sensor::TextSensor *last_disconnect_txt_ = nullptr;
+  sensor::Sensor *pair_attempts_sensor_ = nullptr;
+  sensor::Sensor *connect_count_sensor_ = nullptr;
+  char trace_ring_[TRACE_SLOTS][TRACE_SLOT_LEN] = {};  // 260 B, static
+  uint8_t trace_head_ = 0;                             // next slot to write
+  uint8_t trace_n_ = 0;                                // used slots
+  bool trace_dirty_ = false;
+  uint32_t pair_attempts_ = 0;
+  uint32_t connect_count_ = 0;
+  uint32_t connect_ms_ = 0;
+  uint32_t pin_tx_ms_ = 0;
+  bool pin_tx_valid_ = false;
 
   friend class SmartBoilerModeSelect;
   friend class SmartBoilerThermostat;

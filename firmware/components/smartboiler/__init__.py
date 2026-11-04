@@ -26,6 +26,10 @@ CONF_HEAT_ON = 'heat_on'
 CONF_THERMOSTAT = 'thermostat'
 CONF_CONSUMPTION = 'consumption'
 CONF_BNAME = "b_name"
+CONF_PAIR_TRACE = "pair_trace"
+CONF_LAST_DISCONNECT = "last_disconnect"
+CONF_PAIR_ATTEMPTS = "pair_attempts"
+CONF_CONNECT_COUNT = "connect_count"
 
 smartboiler_controller_ns = cg.esphome_ns.namespace('sb')
 
@@ -54,6 +58,11 @@ CONFIG_SCHEMA = cv.polling_component_schema('600s').extend({
     cv.Optional(CONF_STATE, {"name": "State", "icon": "mdi:connection" }): text_sensor.text_sensor_schema().extend(),
     cv.Optional(CONF_VERSION, {"name": "Version", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
     cv.Optional(CONF_BNAME, {"name": "Name" }): text_sensor.text_sensor_schema().extend(),
+    # LOCAL MODIFICATION (pairing diagnostics, see UPSTREAM.md)
+    cv.Optional(CONF_PAIR_TRACE, {"name": "Pair Trace", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
+    cv.Optional(CONF_LAST_DISCONNECT, {"name": "Last Disconnect", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
+    cv.Optional(CONF_PAIR_ATTEMPTS): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:counter", entity_category=ENTITY_CATEGORY_DIAGNOSTIC).extend(),
+    cv.Optional(CONF_CONNECT_COUNT): sensor.sensor_schema(accuracy_decimals=0, icon="mdi:counter", entity_category=ENTITY_CATEGORY_DIAGNOSTIC).extend(),
     cv.Optional(CONF_CONSUMPTION, {"name": "Energy"}): sensor.sensor_schema(
             unit_of_measurement=UNIT_KILOWATT_HOURS,
             icon=ICON_FLASH,
@@ -118,3 +127,21 @@ async def to_code(config):
         name = cg.new_Pvariable(config[CONF_BNAME][CONF_ID])
         await text_sensor.register_text_sensor(name, config[CONF_BNAME])
         cg.add(var.set_name(name))
+
+    if CONF_PAIR_TRACE in config:
+        tr = cg.new_Pvariable(config[CONF_PAIR_TRACE][CONF_ID])
+        await text_sensor.register_text_sensor(tr, config[CONF_PAIR_TRACE])
+        cg.add(var.set_pair_trace(tr))
+
+    if CONF_LAST_DISCONNECT in config:
+        ld = cg.new_Pvariable(config[CONF_LAST_DISCONNECT][CONF_ID])
+        await text_sensor.register_text_sensor(ld, config[CONF_LAST_DISCONNECT])
+        cg.add(var.set_last_disconnect(ld))
+
+    if CONF_PAIR_ATTEMPTS in config:
+        sens = await sensor.new_sensor(config[CONF_PAIR_ATTEMPTS])
+        cg.add(var.set_pair_attempts(sens))
+
+    if CONF_CONNECT_COUNT in config:
+        sens = await sensor.new_sensor(config[CONF_CONNECT_COUNT])
+        cg.add(var.set_connect_count(sens))

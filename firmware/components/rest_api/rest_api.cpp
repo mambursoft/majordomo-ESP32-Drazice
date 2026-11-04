@@ -32,7 +32,8 @@ void set_web_activity_led_hook(void (*hook)()) { web_activity_led_hook = hook; }
 static const size_t MAX_LINE = 512;       // request line (метод + шлях + query)
 static const size_t MAX_HEADER = 256;      // один заголовок
 static const size_t MAX_NAME = 160;        // декодоване display-name entity
-static const size_t MAX_JSON = 256;        // тіло JSON-відповіді
+static const size_t MAX_TEXT = 304;        // екранований text_sensor (напр. Boiler Pair Trace ~280 B)
+static const size_t MAX_JSON = 704;        // тіло JSON-відповіді: value і state дублюють текст (2*MAX_TEXT + префікс)
 static const uint32_t CLIENT_TIMEOUT_MS = 1500;
 
 // ---- Малі хелпери без heap --------------------------------------------------
@@ -408,8 +409,8 @@ void RestApiComponent::serve_text_sensor_(WiFiClient &client, const char *name) 
   if (!e->has_state()) {
     snprintf(json, MAX_JSON, "{\"id\":\"text_sensor-%s\",\"value\":null,\"state\":null}", oid.c_str());
   } else {
-    char esc[MAX_NAME];
-    json_escape(e->state.c_str(), esc, MAX_NAME);
+    char esc[MAX_TEXT];
+    json_escape(e->state.c_str(), esc, MAX_TEXT);
     snprintf(json, MAX_JSON, "{\"id\":\"text_sensor-%s\",\"value\":\"%s\",\"state\":\"%s\"}", oid.c_str(), esc,
              esc);
   }

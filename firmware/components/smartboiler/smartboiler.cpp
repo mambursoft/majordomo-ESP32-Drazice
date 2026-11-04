@@ -45,6 +45,106 @@ void SmartBoiler::setup() {
     this->save_state_();
   }
   this->state_txt_->publish_state(this->state_to_string(this->state_));
+  // Pairing diagnostics start from a defined value (not null) so the module can
+  // tell "no events yet" from "entity missing".
+  if (this->pair_trace_txt_)
+    this->pair_trace_txt_->publish_state("-");
+  if (this->last_disconnect_txt_)
+    this->last_disconnect_txt_->publish_state("-");
+  if (this->pair_attempts_sensor_)
+    this->pair_attempts_sensor_->publish_state(0);
+  if (this->connect_count_sensor_)
+    this->connect_count_sensor_->publish_state(0);
+}
+
+// ---- Pairing diagnostics (LOCAL MODIFICATION) --------------------------------
+// Fixed ring of TRACE_SLOTS short events, each "TAG@<uptime_ms>". No heap
+// growth: the ring is a member array, formatting uses snprintf into it. The
+// published string is assembled (oldest -> newest) into a stack buffer only
+// when something changed, from loop(). PIN digits are never recorded.
+
+const char *SmartBoiler::state_code_(ConnectionState state) {
+  switch (state) {
+    case ConnectionState::CONNECTED:
+      return "CO";
+    case ConnectionState::NEED_PIN:
+      return "NP";
+    case ConnectionState::AUTHENTICATING:
+      return "AU";
+    case ConnectionState::DISCONNECTED:
+      return "DI";
+    default:
+      return "??";
+  }
+}
+
+const char *SmartBoiler::state_name_(ConnectionState state) {
+  switch (state) {
+    case ConnectionState::CONNECTED:
+      return "CONNECTED";
+    case ConnectionState::NEED_PIN:
+      return "NEED_PIN";
+    case ConnectionState::AUTHENTICATING:
+      return "AUTHENTICATING";
+    case ConnectionState::DISCONNECTED:
+      return "DISCONNECTED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+void SmartBoiler::trace_(const char *fmt, ...) {
+  char tag[16];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(tag, sizeof(tag), fmt, ap);
+  va_end(ap);
+  snprintf(this->trace_ring_[this->trace_head_], TRACE_SLOT_LEN, "%s@%u", tag, (unsigned) millis());
+  this->trace_head_ = (this->trace_head_ + 1) % TRACE_SLOTS;
+  if (this->trace_n_ < TRACE_SLOTS)
+    this->trace_n_++;
+  this->trace_dirty_ = true;
+}
+
+void SmartBoiler::trace_publish_() {
+  if (!this->trace_dirty_)
+    return;
+  this->trace_dirty_ = false;
+  if (this->pair_trace_txt_ == nullptr)
+    return;
+  // Worst case: 10 * 25 chars + 9 * 3 separators + NUL = 278 < 288.
+  char out[288];
+  size_t o = 0;
+  out[0] = '\0';
+  uint8_t start = (this->trace_head_ + TRACE_SLOTS - this->trace_n_) % TRACE_SLOTS;
+  for (uint8_t i = 0; i < this->trace_n_; i++) {
+    const char *ev = this->trace_ring_[(start + i) % TRACE_SLOTS];
+    int n = snprintf(out + o, sizeof(out) - o, "%s%s", i ? " | " : "", ev);
+    if (n < 0 || (size_t) n >= sizeof(out) - o)
+      break;
+    o += n;
+  }
+  this->pair_trace_txt_->publish_state(out);
+}
+
+void SmartBoiler::record_disconnect_(int reason) {
+  uint32_t now = millis();
+  char since_conn[16];
+  char since_pin[16];
+  if (this->connect_count_ > 0)
+    snprintf(since_conn, sizeof(since_conn), "%u", (unsigned) (now - this->connect_ms_));
+  else
+    snprintf(since_conn, sizeof(since_conn), "-");
+  if (this->pin_tx_valid_)
+    snprintf(since_pin, sizeof(since_pin), "%u", (unsigned) (now - this->pin_tx_ms_));
+  else
+    snprintf(since_pin, sizeof(since_pin), "-");
+  char buf[112];
+  snprintf(buf, sizeof(buf), "reason=%d state=%s uptime_ms=%u since_connect_ms=%s since_pin_tx_ms=%s", reason,
+           this->state_name_(this->state_), (unsigned) now, since_conn, since_pin);
+  ESP_LOGI(TAG, "Last disconnect: %s", buf);
+  if (this->last_disconnect_txt_)
+    this->last_disconnect_txt_->publish_state(buf);
 }
 
 void SmartBoiler::dump_config() {
@@ -58,19 +158,46 @@ void SmartBoiler::dump_config() {
   LOG_NUMBER("  ", "Pairing PIN", mPin_);
   LOG_TEXT_SENSOR("  ", "Version", version_);
   LOG_TEXT_SENSOR("  ", "State", state_txt_);
+  LOG_TEXT_SENSOR("  ", "Pair Trace", pair_trace_txt_);
+  LOG_TEXT_SENSOR("  ", "Last Disconnect", last_disconnect_txt_);
+  LOG_SENSOR("  ", "Pair Attempts", pair_attempts_sensor_);
+  LOG_SENSOR("  ", "Connect Count", connect_count_sensor_);
 }
 
-void SmartBoiler::loop() { this->process_command_queue_(); }
+void SmartBoiler::loop() {
+  this->process_command_queue_();
+  // Event-driven: publishes only if a pairing event was recorded since the last loop.
+  this->trace_publish_();
+}
 
 void SmartBoiler::send_to_boiler(SBProtocolRequest request) {
   this->last_command_timestamp_ = millis();
-  ESP_LOGD(TAG, "Sending: REQ: %d DATA=[%s]", request.mRqType, format_hex_pretty(request.mData).c_str());
+  // Do not log the raw PIN packet: DATA of a GLOBAL_PAIRPIN request contains the PIN.
+  if (request.mRqType == SBPacket::SBC_PACKET_GLOBAL_PAIRPIN)
+    ESP_LOGD(TAG, "Sending: REQ: %d DATA=[<pin redacted>]", request.mRqType);
+  else
+    ESP_LOGD(TAG, "Sending: REQ: %d DATA=[%s]", request.mRqType, format_hex_pretty(request.mData).c_str());
   auto status = esp_ble_gattc_write_char(this->parent_->get_gattc_if(), this->parent_->get_conn_id(),
                                          this->char_handle_, request.mData.size(), request.mData.data(),
                                          ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
 
   if (status)
     ESP_LOGW(TAG, "[%s] esp_ble_gattc_write_char failed, status=%d", this->parent_->address_str().c_str(), status);
+
+  // Pairing diagnostics: when the packet was ACTUALLY written (after the queue delay).
+  if (request.mRqType == SBPacket::SBC_PACKET_GLOBAL_PAIRPIN) {
+    this->pin_tx_ms_ = this->last_command_timestamp_;
+    this->pin_tx_valid_ = true;
+    if (status)
+      this->trace_("PIN_TX_ERR(%d)", (int) status);
+    else
+      this->trace_("PIN_TX");
+  } else if (request.mRqType == SBPacket::SBC_PACKET_RQ_GLOBAL_MAC) {
+    if (status)
+      this->trace_("AUTH_TX_ERR(%d)", (int) status);
+    else
+      this->trace_("AUTH_TX");
+  }
 }
 
 void SmartBoiler::on_set_temperature(uint8_t temp) {
@@ -107,11 +234,23 @@ void SmartBoiler::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
     case ESP_GATTC_OPEN_EVT: {
       if (param->open.status == ESP_GATT_OK) {
         ESP_LOGI(TAG, "[%s] Connected", this->parent_->address_str().c_str());
+        this->connect_count_++;
+        this->connect_ms_ = millis();
+        this->pin_tx_valid_ = false;
+        if (this->connect_count_sensor_)
+          this->connect_count_sensor_->publish_state((float) this->connect_count_);
+        this->trace_("CONN#%u", (unsigned) this->connect_count_);
+      } else {
+        this->trace_("OPEN_FAIL(%d)", (int) param->open.status);
       }
       break;
     }
     case ESP_GATTC_DISCONNECT_EVT: {
       ESP_LOGI(TAG, "[%s] Disconnected", this->parent_->address_str().c_str());
+      // Record BEFORE changing state so the state at the moment of disconnect is captured.
+      int reason = (int) param->disconnect.reason;
+      this->trace_("DISC(r=%d,%s)", reason, this->state_code_(this->state_));
+      this->record_disconnect_(reason);
       this->set_state(ConnectionState::DISCONNECTED);
       break;
     }
@@ -158,6 +297,7 @@ void SmartBoiler::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t 
 
 void SmartBoiler::authenticate() {
   ESP_LOGD(TAG, "Sending authentication request.");
+  this->trace_("AUTH_Q");
   auto cmd = SBProtocolRequest(SBPacket::SBC_PACKET_RQ_GLOBAL_MAC);
   cmd.writeString(this->uid_);
   this->enqueue_command_(cmd);
@@ -198,6 +338,10 @@ void SmartBoiler::handle_incoming(const uint8_t *value, uint16_t value_len) {
     case SBPacket::SBC_PACKET_GLOBAL_PAIRPIN: {
       ESP_LOGD(TAG, "PIN pairing required.");
       // water heater requires pairing of this client via PIN
+      this->pair_attempts_++;
+      if (this->pair_attempts_sensor_)
+        this->pair_attempts_sensor_->publish_state((float) this->pair_attempts_);
+      this->trace_("REQ_PIN");
       this->set_state(ConnectionState::NEED_PIN);
       break;
     }
@@ -239,6 +383,19 @@ void SmartBoiler::handle_incoming(const uint8_t *value, uint16_t value_len) {
     }
     case SBPacket::SBC_PACKET_GLOBAL_PINRESULT: {
       auto pinResult = parse_number<int>(result.mString);
+      {
+        // Raw response, truncated to 6 chars and reduced to a safe charset.
+        char raw[8];
+        size_t r = 0;
+        for (size_t i = 0; i < result.mString.size() && r < 6; i++) {
+          char c = result.mString[i];
+          bool ok = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-' ||
+                    c == '_' || c == '.';
+          raw[r++] = ok ? c : '?';
+        }
+        raw[r] = '\0';
+        this->trace_("RES=%s", r ? raw : "empty");
+      }
       if (pinResult.has_value() && pinResult.value() == 1) {
         ESP_LOGI(TAG, "PIN is correct.");
         this->set_state(ConnectionState::CONNECTED);
@@ -427,6 +584,7 @@ std::string SmartBoiler::generateUUID() {
 
 void SmartBoiler::send_pin(uint32_t pin) {
   ESP_LOGD(TAG, "Sending PIN to water heater.");
+  this->trace_("PIN_Q");
   auto cmd = SBProtocolRequest(SBC_PACKET_GLOBAL_PAIRPIN, this->mPacketUid++);
   cmd.write_le(pin);
   this->enqueue_command_(cmd);
@@ -474,11 +632,18 @@ void SmartBoiler::set_state(ConnectionState newState) {
 }
 
 void SmartBoilerPinInput::control(const float value) {
-  if (get_parent()->state_ == ConnectionState::NEED_PIN) {
+  SmartBoiler *p = get_parent();
+  if (p->state_ == ConnectionState::NEED_PIN) {
     uint32_t pin = floor(value);
-    get_parent()->send_pin(pin);
+    // Digit count only (leading zeros are not representable in the number); never the digits.
+    unsigned digits = 1;
+    for (uint32_t t = pin; t >= 10; t /= 10)
+      digits++;
+    p->trace_("PIN_RX(%ud)", digits);
+    p->send_pin(pin);
   } else {
     ESP_LOGW(TAG, "Device is not in pairing mode, PIN change is ignored.");
+    p->trace_("PIN_IGNORED(%s)", p->state_code_(p->state_));
   }
 }
 

@@ -11,6 +11,8 @@
 #   state        -> text_sensor "State" (Connected/Require PIN/…)
 #   version      -> text_sensor "Version" (fw;board;S/N)
 #   b_name       -> text_sensor "Name"
+#   pair_trace / last_disconnect -> text_sensor, pair_attempts / connect_count -> sensor
+#                   (ЛОКАЛЬНА модифікація: діагностика парингу, не в upstream)
 
 smartboiler:
   - ble_client_id: boiler_ble
@@ -57,3 +59,17 @@ smartboiler:
     b_name:
       id: boiler_bname
       name: "Boiler Name"
+    # Діагностика парингу (локальна модифікація, див. components/smartboiler/UPSTREAM.md).
+    # Подієві, без періодичних публікацій; PIN-цифри не записуються.
+    pair_trace:
+      id: boiler_pair_trace
+      name: "Boiler Pair Trace"
+    last_disconnect:
+      id: boiler_last_disconnect
+      name: "Boiler Last Disconnect"
+    pair_attempts:
+      id: boiler_pair_attempts
+      name: "Boiler Pair Attempts"
+    connect_count:
+      id: boiler_connect_count
+      name: "Boiler Connect Count"

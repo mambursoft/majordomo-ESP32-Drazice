@@ -26,6 +26,7 @@ use DraziceSmart\Presence;
 use DraziceSmart\SimpleDevices;
 use DraziceSmart\BoilerObject;
 use DraziceSmart\SettingsSaver;
+use DraziceSmart\PairTrace;
 
 class drazice_smart extends module
 {
@@ -980,6 +981,11 @@ EOD;
                 $out['PIN_BAD'] = ($reason === 'bad_pin') ? 1 : 0;
                 // ESP unreachable / transport failure.
                 $out['PIN_ESP_DOWN'] = (empty($pinRes['ok']) && $reason !== 'bad_pin') ? 1 : 0;
+                // Stale-PIN warning + post-submit trace snapshot (never PIN digits).
+                $out['PIN_STALE'] = !empty($pinRes['stale']) ? 1 : 0;
+                $traceTail = isset($pinRes['trace_tail']) && is_array($pinRes['trace_tail']) ? $pinRes['trace_tail'] : array();
+                $out['PIN_TRACE_TAIL'] = SettingsSaver::esc(implode(' | ', $traceTail));
+                $out['PIN_LAST_DISCONNECT'] = SettingsSaver::esc(isset($pinRes['last_disconnect']) ? $pinRes['last_disconnect'] : '');
                 break;
             case 'ble_scan_clear':
                 $out['CMD_RESULT'] = $this->opButton('BLE Scan Clear');
@@ -1041,6 +1047,14 @@ EOD;
         foreach ($diag as $k => $v) {
             $out['DG_' . $k] = ($v === null || $v === '') ? '—' : SettingsSaver::esc($v);
         }
+        // Pairing diagnostics for the Setup/Diagnostics tabs. CONNECT_COUNT is
+        // rendered into a hidden form field (digits only, empty when unknown)
+        // so a later submit can detect that the boiler issued a new PIN.
+        $ccRaw = isset($diag['CONNECT_COUNT']) ? $diag['CONNECT_COUNT'] : null;
+        $out['PAIR_RENDER_CC'] = is_numeric($ccRaw) ? (string) (int) $ccRaw : '';
+        $out['PAIR_HAS_TRACE'] = (isset($diag['PAIR_TRACE']) && $diag['PAIR_TRACE'] !== null && $diag['PAIR_TRACE'] !== '' && $diag['PAIR_TRACE'] !== '-') ? 1 : 0;
+        $dc = PairTrace::parseDisconnect(isset($diag['LAST_DISCONNECT']) ? $diag['LAST_DISCONNECT'] : null);
+        $out['PAIR_HAS_DISC'] = empty($dc) ? 0 : 1;
 
         // Property-binding dropdowns: build <select> option lists in PHP (the
         // simple template parser can't do "selected if equals current" inside a
@@ -1135,6 +1149,11 @@ EOD;
             'BOILER_STATE'  => $read('text_sensor', 'Boiler State'),
             'REQ_TARGET'    => $read('number', 'Boiler Requested Target'),
             'REQ_MODE'      => $read('select', 'Boiler Requested Mode'),
+            // Pairing diagnostics (local firmware modification, see UPSTREAM.md).
+            'PAIR_TRACE'       => $read('text_sensor', 'Boiler Pair Trace'),
+            'LAST_DISCONNECT'  => $read('text_sensor', 'Boiler Last Disconnect'),
+            'PAIR_ATTEMPTS'    => $read('sensor', 'Boiler Pair Attempts'),
+            'CONNECT_COUNT'    => $read('sensor', 'Boiler Connect Count'),
         );
     }
 
@@ -1298,6 +1317,16 @@ EOD;
             return array('ok' => false, 'reason' => 'bad_pin');
         }
         $t = $this->makeTransport();
+
+        // Stale-PIN check: the hidden field carries the connect count that was
+        // rendered when the form was shown. If the ESP's connect count already
+        // moved on, the boiler rebuilt the BLE link and issued a NEW pairing
+        // PIN on its display — the PIN just typed is for the previous session.
+        // We still send it (the user may be looking at the new PIN already).
+        $renderedCc = isset($_REQUEST['pin_render_cc']) ? $_REQUEST['pin_render_cc'] : null;
+        $currentCcRaw = Transport::numericValue($t->getState('sensor', 'Boiler Connect Count'));
+        $stale = PairTrace::isStale($renderedCc, $currentCcRaw);
+
         // PIN is sensitive: send the numeric value once; NEVER store the digits.
         $res = $t->postSet('number', 'Boiler Pairing PIN', $v['value']);
 
@@ -1318,21 +1347,33 @@ EOD;
         }
         $accepted = ($state === 'Connected');
 
+        // Post-submit trace snapshot: a short non-sensitive summary for the
+        // inline result and the command log. Never includes PIN digits (the
+        // firmware trace itself never records them).
+        $traceRaw = Transport::stringValue($t->getState('text_sensor', 'Boiler Pair Trace'));
+        $lastDisconnectRaw = Transport::stringValue($t->getState('text_sensor', 'Boiler Last Disconnect'));
+        $traceTail = PairTrace::lastEvents($traceRaw, 3);
+
         Repository::saveCommand(array(
             'ts_utc'     => time(),
             'command_id' => 'pair',
             'kind'       => 'pair',
             'payload'    => '****',
             'status'     => $accepted ? 'accepted' : ($res !== null ? 'sent' : 'failed'),
-            'detail'     => ($state === null ? '' : $state),
+            'detail'     => ($state === null ? '' : $state) . ($stale ? ' [stale_pin]' : '')
+                . (empty($traceTail) ? '' : (' trace:' . implode(',', $traceTail)))
+                . ($lastDisconnectRaw ? (' disc:' . $lastDisconnectRaw) : ''),
         ));
 
         return array(
-            'ok'       => ($res !== null),
-            'accepted' => $accepted,
-            'state'    => $state,
-            'reason'   => ($res !== null ? 'sent' : 'transport'),
-            'error'    => $t->getLastError(),
+            'ok'               => ($res !== null),
+            'accepted'         => $accepted,
+            'state'            => $state,
+            'reason'           => ($res !== null ? 'sent' : 'transport'),
+            'error'            => $t->getLastError(),
+            'stale'            => $stale,
+            'trace_tail'       => $traceTail,
+            'last_disconnect'  => $lastDisconnectRaw,
         );
     }
 

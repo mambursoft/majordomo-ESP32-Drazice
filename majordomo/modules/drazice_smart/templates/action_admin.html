@@ -179,11 +179,15 @@
       </p>
       <form method="post" action="?tab=setup" class="form-inline" style="margin-bottom:10px;">
         <input type="hidden" name="op" value="send_pin"><input type="hidden" name="csrf" value="[#CSRF#]">
+        <input type="hidden" name="pin_render_cc" value="[#PAIR_RENDER_CC#]">
         <input class="form-control" type="text" inputmode="numeric" pattern="[0-9]{1,4}" maxlength="4" name="pin" placeholder="PIN">
         <button class="btn btn-default" type="submit"><#LANG_DS_DG_SEND_PIN#></button>
         <small class="text-muted" style="display:block;margin-top:4px;"><#LANG_DS_SETUP_PIN_HINT#></small>
       </form>
       [#if PIN_CMD="1"#]
+        [#if PIN_STALE="1"#]
+          <div class="alert alert-warning" role="alert" style="margin-bottom:8px;"><span class="glyphicon glyphicon-alert"></span> <#LANG_DS_PAIR_STALE_WARN#></div>
+        [#endif#]
         [#if PIN_ACCEPTED="1"#]
           <div class="alert alert-success" style="margin:0;"><span class="glyphicon glyphicon-ok-sign"></span> <#LANG_DS_SETUP_PIN_ACCEPTED#></div>
         [#else#]
@@ -197,7 +201,23 @@
             [#endif#]
           [#endif#]
         [#endif#]
+        <div class="well well-sm" style="margin:8px 0 0 0;font-size:12px;">
+          <strong><#LANG_DS_PAIR_AFTER_SUBMIT#>:</strong> <code>[#PIN_TRACE_TAIL#]</code><br>
+          <#LANG_DS_PAIR_LAST_DISC#>: <code>[#PIN_LAST_DISCONNECT#]</code>
+        </div>
       [#endif#]
+
+      <hr style="margin:12px 0;">
+      <h5><strong><#LANG_DS_PAIR_TRACE_TITLE#></strong></h5>
+      <p class="text-muted" style="font-size:12px;"><#LANG_DS_PAIR_EXPLAIN#></p>
+      <table class="table table-condensed" style="font-size:12px;">
+        <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code>[#DG_PAIR_ATTEMPTS#]</code></td></tr>
+        <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code>[#DG_CONNECT_COUNT#]</code></td></tr>
+        <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code>[#DG_LAST_DISCONNECT#]</code></td></tr>
+        <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;">[#DG_PAIR_TRACE#]</code></td></tr>
+      </table>
+      [#if PAIR_HAS_TRACE="0"#]<div class="text-muted" style="font-size:12px;"><#LANG_DS_PAIR_NO_DATA#></div>[#endif#]
+      <small class="text-muted"><#LANG_DS_PAIR_LEGEND#></small>
     </div>
   </div>
   [#endif#]
@@ -535,6 +555,15 @@
           <tr><td><#LANG_DS_DG_BOILER_NAME#></td><td>[#DG_BOILER_NAME#]</td></tr>
           <tr><td><#LANG_DS_CTL_REQ_TARGET#></td><td>[#DG_REQ_TARGET#] °C</td></tr>
           <tr><td><#LANG_DS_CTL_REQ_MODE#></td><td>[#DG_REQ_MODE#]</td></tr>
+        </table>
+      </div>
+      <div class="panel panel-default">
+        <div class="panel-heading"><strong><#LANG_DS_PAIR_TRACE_TITLE#></strong></div>
+        <table class="table table-condensed">
+          <tr><td><#LANG_DS_PAIR_ATTEMPTS#></td><td><code>[#DG_PAIR_ATTEMPTS#]</code></td></tr>
+          <tr><td><#LANG_DS_PAIR_CONNECTS#></td><td><code>[#DG_CONNECT_COUNT#]</code></td></tr>
+          <tr><td><#LANG_DS_PAIR_LAST_DISC#></td><td><code style="white-space:normal;word-break:break-all;">[#DG_LAST_DISCONNECT#]</code></td></tr>
+          <tr><td colspan="2"><code style="white-space:normal;word-break:break-all;">[#DG_PAIR_TRACE#]</code></td></tr>
         </table>
       </div>
       <div class="panel panel-default">
