@@ -419,7 +419,7 @@ T::eq($after['ATTEMPT_UTC'], $before['ATTEMPT_UTC'], 'markDirty leaves ATTEMPT_U
 $m = stub_fresh_module($ct);
 $m->refreshState(true);
 $ct->resetCounts();
-$lockFh = fopen(sys_get_temp_dir() . '/drazice_state.lock', 'c');
+$lockFh = fopen(drazice_smart::stateLockPath(), 'c');
 T::ok($lockFh && flock($lockFh, LOCK_EX | LOCK_NB), 'test holds the state fetch lock');
 $r = $m->refreshState(true);
 T::eq($ct->calls['getAll'], 0, 'forced read (pairing poll) while the lock is taken: NO getAll, cache served');

@@ -35,7 +35,7 @@ use DraziceSmart\SceneBuilder;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.10.0';
+    const MODULE_VERSION = '1.11.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -84,6 +84,56 @@ class drazice_smart extends module
     function __construct()
     {
         $this->drazice_smart();
+    }
+
+    /**
+     * Timer cycle entry point. MajorDoMo's cycle.php calls processCycle() on
+     * every registered module roughly once a minute. We self-throttle to
+     * POLL_INTERVAL_S and guard against overlapping runs with a non-blocking
+     * lock, then run one bounded cycleStep(). This is what makes lease renewal,
+     * active hold, history, presence and the HDO override work in the
+     * background instead of only when the admin page is open.
+     */
+    function processCycle()
+    {
+        $this->getConfig();
+
+        // Self-throttle: cycle.php fires ~every minute; honour POLL_INTERVAL_S.
+        $interval = isset($this->config['POLL_INTERVAL_S']) ? (int) $this->config['POLL_INTERVAL_S'] : 15;
+        if ($interval < 5) {
+            $interval = 5;
+        }
+        $last = isset($this->config['_LAST_CYCLE_UTC']) ? (int) $this->config['_LAST_CYCLE_UTC'] : 0;
+        $now = time();
+        if (($now - $last) < $interval) {
+            return;
+        }
+
+        // Non-blocking lock so a slow cycle never overlaps the next tick.
+        $lockFile = (defined('ROOT') ? ROOT : sys_get_temp_dir() . '/') . 'cms/drazice_smart.lock';
+        $lock = @fopen($lockFile, 'c');
+        if ($lock === false) {
+            $lockFile = sys_get_temp_dir() . '/drazice_smart.lock';
+            $lock = @fopen($lockFile, 'c');
+        }
+        if ($lock !== false && !flock($lock, LOCK_EX | LOCK_NB)) {
+            return; // another run in progress
+        }
+
+        try {
+            $this->cycleStep();
+            $this->config['_LAST_CYCLE_UTC'] = time();
+            $this->saveConfig();
+        } catch (\Throwable $e) {
+            if (function_exists('DebMes')) {
+                DebMes('drazice_smart cycle error: ' . $e->getMessage());
+            }
+        }
+
+        if ($lock !== false) {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     function saveParams($data = 0)
@@ -432,6 +482,19 @@ EOD;
 
     // ---- ESP state cache (ONE batch GET /state, DB snapshot) ----------------
 
+    /**
+     * Path of the state-fetch lock. Keyed by effective uid so a lock left by
+     * another OS user (e.g. a one-off CLI run as root) does not block the web
+     * user (www-data) with "Permission denied". Public so tests can target the
+     * exact same file the code uses.
+     */
+    public static function stateLockPath()
+    {
+        $uid = function_exists('posix_geteuid') ? (string) posix_geteuid()
+            : (function_exists('getmyuid') ? (string) getmyuid() : '0');
+        return sys_get_temp_dir() . '/drazice_state_' . $uid . '.lock';
+    }
+
     /** Cache staleness threshold derived from POLL_INTERVAL_S. */
     private function staleAfterS()
     {
@@ -475,7 +538,7 @@ EOD;
             return $this->stateResult($row, $now);
         }
 
-        $fh = @fopen(sys_get_temp_dir() . '/drazice_state.lock', 'c');
+        $fh = @fopen(self::stateLockPath(), 'c');
         $locked = false;
         if ($fh) {
             $deadline = microtime(true) + 3.0;
@@ -716,10 +779,19 @@ EOD;
             $t->pressButton('Boiler Lease Renew');
         }
 
-        // Apply only when automation is ON and not dry-run and decision allows.
-        if (!empty($this->config['AUTOMATION_ENABLED']) && empty($this->config['DRY_RUN'])
-            && !empty($decision['allowed']) && $decision['action'] === 'heat') {
-            $this->applyDecision($decision);
+        // Apply the decision when automation is ON and not dry-run.
+        if (!empty($this->config['AUTOMATION_ENABLED']) && empty($this->config['DRY_RUN'])) {
+            if (!empty($decision['allowed']) && $decision['action'] === 'heat') {
+                $this->applyDecision($decision);
+            } else {
+                // "hold" is NOT passive: if the boiler is actually heating (or
+                // not already in a quiet mode) while the policy says DO NOT
+                // heat, actively push the boiler to a non-heating state. STOP
+                // is unavailable, so the strongest safe action is ANTIFREEZE
+                // (freeze protection) + target to the minimum. This is what
+                // actually stops a SMART-mode heat the module did not start.
+                $this->applyHold($snapshot, $decision);
+            }
         }
 
         // HDO solar-override control (independent of the heat decision).
@@ -852,6 +924,47 @@ EOD;
             'payload' => $h['desired'] ? '1' : '0',
             'status' => ($res !== null ? 'sent' : 'failed'),
             'detail' => ($res === null ? json_encode($t->getLastError()) : $h['reason']),
+        ));
+        StateCache::markDirty();
+    }
+
+    /**
+     * Active "do not heat": the policy decided hold, but the boiler may still
+     * be heating on its own (SMART mode). Since STOP is unavailable, request
+     * ANTIFREEZE + minimum target to make it stop. Idempotent and quiet:
+     *   - only acts while the boiler is heating OR not already in ANTIFREEZE;
+     *   - never fights the boiler's own cooldown (guard handles that);
+     *   - the specific cooldown decision already carries mode ANTIFREEZE, so
+     *     it flows here too.
+     * The decision's mode (if any, e.g. vacation/cooldown -> ANTIFREEZE) wins;
+     * otherwise we default to ANTIFREEZE.
+     */
+    private function applyHold($snapshot, $decision)
+    {
+        if (empty($snapshot['http_available'])) {
+            return;
+        }
+        $heating = isset($snapshot['heating']) ? $snapshot['heating'] : null;
+        $reportedMode = isset($snapshot['reported_mode']) ? (string) $snapshot['reported_mode'] : '';
+        $targetMode = (isset($decision['mode']) && $decision['mode'] !== null) ? $decision['mode'] : 'ANTIFREEZE';
+
+        // Nothing to do if the boiler is already quiet: not heating AND already
+        // in the target quiet mode. Avoids a BLE write every cycle.
+        $alreadyQuiet = ($heating === false) && ($reportedMode === $targetMode);
+        if ($alreadyQuiet) {
+            return;
+        }
+
+        $t = $this->makeTransport();
+        // Mode first (ANTIFREEZE stops normal heating), then floor the target.
+        $t->postSet('select', 'Boiler Requested Mode', $targetMode);
+        $res = $t->postSet('number', 'Boiler Requested Target', 40);
+        Repository::saveCommand(array(
+            'ts_utc' => time(), 'command_id' => uniqid('hold_', true), 'kind' => 'hold',
+            'payload' => $targetMode . ' 40',
+            'status' => ($res !== null ? 'sent' : 'failed'),
+            'detail' => ($res === null ? json_encode($t->getLastError())
+                : ('active hold: ' . (isset($decision['reason']) ? $decision['reason'] : '') . ' (heating=' . ($heating ? '1' : '0') . ')')),
         ));
         StateCache::markDirty();
     }
