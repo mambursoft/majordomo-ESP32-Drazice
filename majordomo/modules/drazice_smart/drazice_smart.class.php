@@ -35,7 +35,7 @@ use DraziceSmart\SceneBuilder;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.13.1';
+    const MODULE_VERSION = '1.13.2';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -344,6 +344,13 @@ class drazice_smart extends module
             'PRESENCE_TOO_LONG_AFTER_S' => 1200, // "too_long" threshold
             'PRESENCE_RENOTIFY_EVERY_S' => 0,
             'PRESENCE_HANDLER'     => '',   // MajorDoMo method to call (announce)
+            // Data retention (RPi/SD disk is small): prune the module's own
+            // history tables so they never grow without bound. 0 = keep forever.
+            // Pruning runs at most once per day (see _LAST_PRUNE_UTC).
+            'PRESENCE_RETENTION_DAYS'  => 90,   // drazice_presence
+            'TELEMETRY_RETENTION_DAYS' => 30,   // drazice_telemetry
+            'COMMANDS_RETENTION_DAYS'  => 30,   // drazice_commands
+            '_LAST_PRUNE_UTC'          => 0,    // internal: last time tables were pruned
             // Event handlers: a script/method called when a value CHANGES.
             // Format: "script:Title" or "Object.method"; empty = no handler.
             // The handler receives $params: event, value, prev (globals too).
@@ -872,6 +879,10 @@ EOD;
             $this->syncSimpleDevices($snapshot, $decision);
         }
 
+        // Prune our own history tables at most once per day so they never grow
+        // without bound (RPi/SD disk is small). Cheap no-op between runs.
+        $this->pruneHistory(time());
+
         return array('snapshot' => $snapshot, 'decision' => $decision);
     }
 
@@ -1361,6 +1372,53 @@ EOD;
                 ));
             }
         }
+    }
+
+    /**
+     * Prune the module's own history tables so they never grow without bound.
+     * The RPi stores MySQL on a small SD/flash disk, so every row costs real
+     * space. Each table has its own retention (days); 0 keeps it forever.
+     * Runs at most once per day (guarded by _LAST_PRUNE_UTC) regardless of how
+     * often the cycle fires, and is a cheap no-op between daily runs.
+     *
+     * @param int $now unix UTC (injectable for tests)
+     * @return array map table => rows deleted (only when it actually pruned)
+     */
+    private function pruneHistory($now)
+    {
+        $last = isset($this->config['_LAST_PRUNE_UTC']) ? (int) $this->config['_LAST_PRUNE_UTC'] : 0;
+        if (($now - $last) < 86400) {
+            return array(); // already pruned within the last 24h
+        }
+
+        $plan = array(
+            // table => array(time column, retention-days config key)
+            'drazice_presence'  => array('TS_UTC',      'PRESENCE_RETENTION_DAYS'),
+            'drazice_telemetry' => array('SAMPLE_UTC',   'TELEMETRY_RETENTION_DAYS'),
+            'drazice_commands'  => array('TS_UTC',       'COMMANDS_RETENTION_DAYS'),
+        );
+
+        $deleted = array();
+        foreach ($plan as $table => $def) {
+            list($tsCol, $cfgKey) = $def;
+            $days = isset($this->config[$cfgKey]) ? (int) $this->config[$cfgKey] : 0;
+            if ($days <= 0) {
+                continue; // 0 (or invalid) => keep forever for this table
+            }
+            if (!$this->tableExists($table)) {
+                continue;
+            }
+            $cutoff = $now - ($days * 86400);
+            if (function_exists('SQLExec')) {
+                // Parameterless, integer-only WHERE: no user input in the SQL.
+                SQLExec('DELETE FROM ' . $table . ' WHERE ' . $tsCol . ' < ' . (int) $cutoff);
+                $deleted[$table] = $days;
+            }
+        }
+
+        $this->config['_LAST_PRUNE_UTC'] = $now;
+        $this->saveConfig();
+        return $deleted;
     }
 
     /**

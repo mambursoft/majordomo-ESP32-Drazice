@@ -716,6 +716,16 @@
       <div class="col-md-4 form-group"><label><#LANG_DS_PR_HANDLER#></label><input class="form-control" name="PRESENCE_HANDLER" value="[#CFG_PRESENCE_HANDLER#]" list="ds-handlers" autocomplete="off" placeholder="script:presenceAnnounce"><small class="text-muted"><#LANG_DS_H_PR_HANDLER#></small></div>
     </div>
     <div class="alert alert-info" style="font-size:12px;"><#LANG_DS_PR_EVENTS#></div>
+
+    <h5 style="margin-top:14px;"><span class="glyphicon glyphicon-hdd"></span> <#LANG_DS_RET_TITLE#></h5>
+    <p class="text-muted" style="font-size:12px;"><#LANG_DS_RET_INTRO#></p>
+    <div class="row">
+      <div class="col-md-3 form-group"><label><#LANG_DS_RET_PRESENCE#></label><input class="form-control" type="number" min="0" step="1" name="PRESENCE_RETENTION_DAYS" value="[#CFG_PRESENCE_RETENTION_DAYS#]"></div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_RET_TELEMETRY#></label><input class="form-control" type="number" min="0" step="1" name="TELEMETRY_RETENTION_DAYS" value="[#CFG_TELEMETRY_RETENTION_DAYS#]"></div>
+      <div class="col-md-3 form-group"><label><#LANG_DS_RET_COMMANDS#></label><input class="form-control" type="number" min="0" step="1" name="COMMANDS_RETENTION_DAYS" value="[#CFG_COMMANDS_RETENTION_DAYS#]"></div>
+    </div>
+    <p class="text-muted" style="font-size:11px;margin:0 0 8px 0;"><#LANG_DS_RET_HINT#></p>
+
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
 

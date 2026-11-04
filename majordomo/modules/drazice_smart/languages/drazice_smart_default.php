@@ -195,6 +195,14 @@ $dictionary = array(
     'DS_H_PR_ROSTER'     => 'E.g. {"aa:bb:cc:dd:ee:ff":"Nazar"}. Lowercase MAC.',
     'DS_H_PR_HANDLER'    => 'Full path of the MajorDoMo method that announces the message (e.g. Toilet.announce).',
 
+    // Data retention (disk housekeeping)
+    'DS_RET_TITLE'       => 'History retention (save disk)',
+    'DS_RET_INTRO'       => 'MajorDoMo on a Raspberry Pi keeps the database on a small SD/flash disk. The module prunes its own history tables so they never grow without bound.',
+    'DS_RET_PRESENCE'    => 'Presence, days',
+    'DS_RET_TELEMETRY'   => 'Telemetry, days',
+    'DS_RET_COMMANDS'    => 'Command log, days',
+    'DS_RET_HINT'        => '0 = keep forever for that table. Pruning runs at most once per day.',
+
     'DS_LOG_DECISIONS'   => 'Recent decisions',
     'DS_LOG_COMMANDS'    => 'Command log',
     'DS_LOG_TIME'        => 'Time',

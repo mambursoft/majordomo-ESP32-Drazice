@@ -208,6 +208,14 @@ $dictionary = array(
     'DS_H_PR_ROSTER'     => 'Напр. {"aa:bb:cc:dd:ee:ff":"Назар"}. MAC у нижньому регістрі.',
     'DS_H_PR_HANDLER'    => 'Повний шлях методу MajorDoMo, який озвучить повідомлення (напр. Toilet.announce).',
 
+    // Data retention (disk housekeeping)
+    'DS_RET_TITLE'       => 'Зберігання історії (економія диска)',
+    'DS_RET_INTRO'       => 'MajorDoMo на RPi зберігає базу на SD/flash — місце обмежене. Модуль сам підчищає свої таблиці історії, щоб вони не росли нескінченно.',
+    'DS_RET_PRESENCE'    => 'Присутність, днів',
+    'DS_RET_TELEMETRY'   => 'Телеметрія, днів',
+    'DS_RET_COMMANDS'    => 'Журнал команд, днів',
+    'DS_RET_HINT'        => '0 = зберігати вічно для цієї таблиці. Очищення виконується не частіше ніж раз на добу.',
+
     // Log tab
     'DS_LOG_DECISIONS'   => 'Останні рішення',
     'DS_LOG_COMMANDS'    => 'Журнал команд',
