@@ -154,10 +154,10 @@ class BoilerObject
     /**
      * Create one property (with DESCRIPTION) on the object if missing.
      * $histDays is the MajorDoMo KEEP_HISTORY retention in DAYS (0 = off).
-     * On an existing property we RAISE the retention toward the catalogue
-     * value but never DOWNGRADE below what the user already set by hand — one
-     * exception: when the catalogue itself pins a specific shorter archive
-     * (e.g. 3 days) we apply it, since that is a deliberate module policy.
+     * The catalogue value is AUTHORITATIVE for the properties the module owns:
+     * on an existing property we set it exactly (both raising and shortening),
+     * so a deliberate short archive like 3 days is applied even if an older
+     * build left 30. History is only disabled where the catalogue asks for 0.
      */
     private static function ensureProperty($objectId, $name, $description, $histDays = 0)
     {
@@ -173,10 +173,12 @@ class BoilerObject
                     $changed = true;
                 }
                 $cur = (int) (isset($upd['KEEP_HISTORY']) ? $upd['KEEP_HISTORY'] : 0);
-                // Enable history where the catalogue asks for it. Set the exact
-                // catalogue value when currently OFF; otherwise only raise it,
-                // so a user who manually extended retention is never shortened.
-                if ($histDays > 0 && ($cur === 0 || $cur < $histDays)) {
+                // The catalogue retention is authoritative for the properties
+                // the module manages: apply it exactly when it differs (both up
+                // and down), so a deliberate short archive (e.g. 3 days) is set
+                // even if an older build had left 30. History stays OFF only
+                // where the catalogue itself asks for 0.
+                if ($histDays > 0 && $cur !== $histDays) {
                     $upd['KEEP_HISTORY'] = $histDays;
                     $changed = true;
                 }
