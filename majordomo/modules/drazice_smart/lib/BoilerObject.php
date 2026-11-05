@@ -41,23 +41,29 @@ class BoilerObject
      */
     public static function catalogue()
     {
+        // history = number of days to keep (0 = off). $h defaults to 30 days,
+        // $h3 keeps a short 3-day archive (operational, not long-term charts).
         $c = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => 0); };
-        $h = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => 1); };
+        $h = function ($desc, $days = 30) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => (int) $days); };
+        $h3 = function ($desc) { return array('desc' => $desc, 'control' => false, 'method' => null, 'history' => 3); };
         $w = function ($desc, $method) { return array('desc' => $desc, 'control' => true, 'method' => $method, 'history' => 0); };
+        // $p: a read-only presence property with its OWN linked method, invoked
+        // by MajorDoMo on every value change (properties.ONCHANGE = method).
+        $p = function ($desc, $method) { return array('desc' => $desc, 'control' => false, 'method' => $method, 'history' => 0, 'onchange' => true); };
 
         $applied = '⚙ КЕРУВАННЯ: зміна цієї властивості ЗАСТОСОВУЄТЬСЯ ДО БОЙЛЕРА через ESP32 (з дотриманням cooldown/lease). ';
 
         return array(
             // --- read-only telemetry from the boiler ---
-            'tempUpper'      => $h('Температура верхнього датчика бойлера, °C (лише читання, з ESP). Історія увімкнена.'),
-            'tempLower'      => $h('Температура нижнього датчика бойлера, °C (лише читання, з ESP). Історія увімкнена.'),
+            'tempUpper'      => $h3('Температура верхнього датчика бойлера, °C (лише читання, з ESP). Архів 3 дні.'),
+            'tempLower'      => $h3('Температура нижнього датчика бойлера, °C (лише читання, з ESP). Архів 3 дні.'),
             'heating'        => $h('Чи гріє бойлер зараз (Heat), 1/0 (лише читання, з ESP). Історія увімкнена — видно моменти перемикання негріє/гріє.'),
-            'hdo'            => $h('Стан тарифного входу HDO, 1/0 (лише читання, з ESP). Історія увімкнена.'),
+            'hdo'            => $h3('Стан тарифного входу HDO, 1/0 (лише читання, з ESP). Архів 3 дні.'),
             'reportedMode'   => $c('Поточний режим бойлера, повідомлений бойлером (лише читання).'),
-            'energyTotalKwh' => $h('Накопичена енергія бойлера, кВт·год (лише читання, з ESP). Історія увімкнена — для графіків споживання по годинах/днях/місяцях.'),
+            'energyTotalKwh' => $h3('Накопичена енергія бойлера, кВт·год (лише читання, з ESP). Архів 3 дні.'),
             'boilerVersion'  => $c('Версія прошивки/серійний номер бойлера (лише читання).'),
             'boilerName'     => $c('Назва бойлера (лише читання).'),
-            'bleState'       => $c('Стан BLE-з\'єднання ESP↔бойлер (лише читання).'),
+            'bleState'       => $h3('Стан BLE-з\'єднання ESP↔бойлер (лише читання). Архів 3 дні.'),
             // --- ESP diagnostics ---
             'espUptime'      => $c('Час роботи ESP32, с (діагностика, лише читання).'),
             'espRssi'        => $c('Рівень Wi-Fi сигналу ESP32, dBm (діагностика).'),
@@ -74,9 +80,9 @@ class BoilerObject
             'tariffActive'   => $c('Чи активний пільговий тариф зараз, 1/0 (лише читання).'),
             'reportedTarget' => $c('Фактична цільова температура бойлера, °C (лише читання).'),
             'plannedTarget'  => $c('Ціль, яку порахував планувальник, °C (лише читання).'),
-            'controlState'   => $h('Поточна дія планувальника: heat/hold (лише читання). Історія увімкнена — рішення модуля окремо від фактичного Heat бойлера.'),
-            'decisionReason' => $c('Коротка причина рішення планувальника (лише читання).'),
-            'decisionHuman'  => $c('Пояснення «чому гріє / чому ні» людською мовою (лише читання).'),
+            'controlState'   => $h3('Поточна дія планувальника: heat/hold (лише читання). Архів 3 дні — рішення модуля окремо від фактичного Heat бойлера.'),
+            'decisionReason' => $h3('Коротка причина рішення планувальника (лише читання). Архів 3 дні.'),
+            'decisionHuman'  => $h3('Пояснення «чому гріє / чому ні» людською мовою (лише читання). Архів 3 дні.'),
             'decisionAllowed'=> $c('Чи дозволено нагрів поточним рішенням, 1/0 (лише читання).'),
             'decisionLevel'  => $c('Рівень пріоритету спрацьованого правила (лише читання).'),
             'decisionLog'    => $h('Компактний рядок рішення. Історія увімкнена — видно рішення за останні дні.'),
@@ -84,7 +90,7 @@ class BoilerObject
             'hdoDesired'     => $c('Бажаний стан HDO, порахований модулем, 1/0 (лише читання).'),
             'hdoControlEnabled' => $c('Чи ввімкнено керування HDO (сонячний оверрайд), 1/0 (лише читання).'),
             'vacationActive' => $c('Чи активний режим відпустки зараз, 1/0 (лише читання).'),
-            'connected'      => $c('Чи доступний ESP32 по HTTP, 1/0 (лише читання).'),
+            'connected'      => $h3('Чи доступний ESP32 по HTTP, 1/0 (лише читання). Архів 3 дні.'),
             'lastSampleUtc'  => $c('UTC час останнього зчитування телеметрії (лише читання).'),
 
             // --- CONTROL properties (change -> applied to the boiler) ---
@@ -95,10 +101,13 @@ class BoilerObject
             'allowBatteryHeat'  => $w($applied . 'Дозволити (1) нагрів навіть від акумуляторів (безпека бойлера зберігається).', 'applyAllowBatteryHeat'),
 
             // --- toilet presence sessions & events (written by the module) ---
-            'presentPeople'      => $c('Хто зараз присутній у туалеті і як довго (людський опис, лише читання).'),
-            'presenceSessionJson'=> $c('Активні сесії присутності (JSON): person, since_utc, duration_s, source (ble/wifi).'),
-            'presenceEvent'      => $c('Остання подія присутності для обробки: entered/long/too_long/left + person.'),
-            'presenceEventJson'  => $c('Повна остання подія присутності (JSON) для обробника/сцен.'),
+            // Each presence property gets its OWN linked method (ONCHANGE) on
+            // the object, so a change fires EspBoiler.<method>() which the user
+            // can extend. Default body routes to the module's presence handler.
+            'presentPeople'      => $p('Хто зараз присутній у туалеті і як довго (людський опис, лише читання).', 'onPresentPeopleChange'),
+            'presenceSessionJson'=> $p('Активні сесії присутності (JSON): person, since_utc, duration_s, source (ble/wifi).', 'onPresenceSessionChange'),
+            'presenceEvent'      => $p('Остання подія присутності для обробки: entered/long/too_long/left + person.', 'onPresenceEventChange'),
+            'presenceEventJson'  => $p('Повна остання подія присутності (JSON) для обробника/сцен.', 'onPresenceEventJsonChange'),
         );
     }
 
@@ -129,22 +138,30 @@ class BoilerObject
         // 2. Properties with descriptions; methods for control properties.
         $created = 0;
         foreach (self::catalogue() as $name => $def) {
-            self::ensureProperty($objectId, $name, $def['desc'], !empty($def['history']));
+            $histDays = isset($def['history']) ? (int) $def['history'] : 0;
+            self::ensureProperty($objectId, $name, $def['desc'], $histDays);
             if (!empty($def['control']) && $def['method']) {
                 self::ensureControlMethod($objectId, $objectTitle, $name, $def['method'], $moduleName);
+            } elseif (!empty($def['onchange']) && $def['method']) {
+                // Presence (variant b): per-property linked method fired on change.
+                self::ensurePresenceMethod($objectId, $objectTitle, $name, $def['method'], $moduleName);
             }
             $created++;
         }
         return array('ok' => true, 'object' => $objectTitle, 'properties' => $created);
     }
 
-    /** Create one property (with DESCRIPTION) on the object if missing. */
-    private static function ensureProperty($objectId, $name, $description, $keepHistory = false)
+    /**
+     * Create one property (with DESCRIPTION) on the object if missing.
+     * $histDays is the MajorDoMo KEEP_HISTORY retention in DAYS (0 = off).
+     * On an existing property we RAISE the retention toward the catalogue
+     * value but never DOWNGRADE below what the user already set by hand — one
+     * exception: when the catalogue itself pins a specific shorter archive
+     * (e.g. 3 days) we apply it, since that is a deliberate module policy.
+     */
+    private static function ensureProperty($objectId, $name, $description, $histDays = 0)
     {
-        // KEEP_HISTORY in MajorDoMo is a number of days (0 = off). Use 30 days
-        // for history-enabled properties so charts have data without filling
-        // the DB forever. Never DOWNGRADE a user's larger retention.
-        $histDays = $keepHistory ? 30 : 0;
+        $histDays = (int) $histDays;
         $rec = SQLSelectOne("SELECT ID FROM properties WHERE OBJECT_ID=" . (int) $objectId
             . " AND TITLE='" . self::safe($name) . "'");
         if (is_array($rec) && !empty($rec['ID'])) {
@@ -155,7 +172,11 @@ class BoilerObject
                     $upd['DESCRIPTION'] = $description;
                     $changed = true;
                 }
-                if ($keepHistory && (int) (isset($upd['KEEP_HISTORY']) ? $upd['KEEP_HISTORY'] : 0) < $histDays) {
+                $cur = (int) (isset($upd['KEEP_HISTORY']) ? $upd['KEEP_HISTORY'] : 0);
+                // Enable history where the catalogue asks for it. Set the exact
+                // catalogue value when currently OFF; otherwise only raise it,
+                // so a user who manually extended retention is never shortened.
+                if ($histDays > 0 && ($cur === 0 || $cur < $histDays)) {
                     $upd['KEEP_HISTORY'] = $histDays;
                     $changed = true;
                 }
@@ -210,6 +231,68 @@ class BoilerObject
             'CODE'        => $code,
         );
         return (int) SQLInsert('methods', $rec);
+    }
+
+    /**
+     * Variant (b): one linked method PER presence property, fired by MajorDoMo
+     * on every value change. Creates the method on the object AND sets
+     * properties.ONCHANGE = methodName so the core setProperty() path invokes
+     * EspBoiler.<method>() whenever the value changes. The default body routes
+     * to the module (onPresenceChange), which the user can extend; it is a safe
+     * no-op when the module class cannot be loaded.
+     */
+    private static function ensurePresenceMethod($objectId, $objectTitle, $property, $methodName, $moduleName)
+    {
+        // MajorDoMo passes $params (PROPERTY, NEW_VALUE, OLD_VALUE, SOURCE) to
+        // an ONCHANGE method. Forward them to the module so one place handles
+        // all presence changes; keep a clear seam for the user to customise.
+        $code = "// AUTO: fired on every change of '" . $property . "' (variant b).\n"
+            . "if (!class_exists('drazice_smart')) {\n"
+            . "    @include_once(DIR_MODULES.'" . $moduleName . "/" . $moduleName . ".class.php');\n"
+            . "}\n"
+            . "if (class_exists('drazice_smart')) {\n"
+            . "    \$m = new drazice_smart();\n"
+            . "    \$m->onPresenceChange('" . $property . "', (isset(\$params['NEW_VALUE']) ? \$params['NEW_VALUE'] : getGlobal('" . $objectTitle . "." . $property . "')), (isset(\$params['OLD_VALUE']) ? \$params['OLD_VALUE'] : ''));\n"
+            . "}\n";
+        $desc = 'AUTO: обробник зміни властивості ' . $property . ' (присутність, variant b).';
+
+        $exists = SQLSelectOne("SELECT ID FROM methods WHERE OBJECT_ID=" . (int) $objectId
+            . " AND TITLE='" . self::safe($methodName) . "'");
+        if (is_array($exists) && !empty($exists['ID'])) {
+            $rec = SQLSelectOne("SELECT * FROM methods WHERE ID=" . (int) $exists['ID']);
+            $rec['CODE'] = $code;
+            $rec['DESCRIPTION'] = $desc;
+            SQLUpdate('methods', $rec);
+            $methodId = (int) $exists['ID'];
+        } else {
+            $rec = array(
+                'OBJECT_ID'   => (int) $objectId,
+                'CLASS_ID'    => 0,
+                'TITLE'       => $methodName,
+                'DESCRIPTION' => $desc,
+                'CODE'        => $code,
+            );
+            $methodId = (int) SQLInsert('methods', $rec);
+        }
+
+        // Link the method to the property's ONCHANGE so core fires it on change.
+        self::setOnChange($objectId, $property, $methodName);
+        return $methodId;
+    }
+
+    /** Set properties.ONCHANGE = method for a given property (idempotent). */
+    private static function setOnChange($objectId, $property, $methodName)
+    {
+        $rec = SQLSelectOne("SELECT ID, ONCHANGE FROM properties WHERE OBJECT_ID=" . (int) $objectId
+            . " AND TITLE='" . self::safe($property) . "'");
+        if (is_array($rec) && !empty($rec['ID'])) {
+            if (!isset($rec['ONCHANGE']) || $rec['ONCHANGE'] !== $methodName) {
+                $rec['ONCHANGE'] = $methodName;
+                SQLUpdate('properties', $rec);
+            }
+            return (int) $rec['ID'];
+        }
+        return 0;
     }
 
     /** Dirty-check write of a single property (avoids setGlobal feedback loops). */

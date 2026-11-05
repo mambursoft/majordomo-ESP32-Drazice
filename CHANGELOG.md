@@ -3,6 +3,30 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.14.0] — 2026-11-01
+
+### Додано
+
+- **Окремий linked method на кожну властивість присутності (variant b).**
+  Властивості `presentPeople`, `presenceSessionJson`, `presenceEvent`,
+  `presenceEventJson` об'єкта бойлера тепер мають власний метод-обробник
+  (`onPresentPeopleChange`, `onPresenceSessionChange`, `onPresenceEventChange`,
+  `onPresenceEventJsonChange`), прописаний у `properties.ONCHANGE`. При зміні
+  значення MajorDoMo викликає `EspBoiler.<метод>()`, який маршрутизує подію в
+  модуль (`onPresenceChange()`). За замовчуванням подія `presenceEvent`
+  викликає налаштований `PRESENCE_HANDLER`; решта — готовий seam для вашої
+  логіки. Методи створюються ідемпотентно в `ensureObject()`.
+
+### Змінено
+
+- **Короткий 3-денний архів для оперативних властивостей.** `tempUpper`,
+  `tempLower`, `hdo`, `energyTotalKwh`, `bleState`, `controlState`,
+  `decisionReason`, `decisionHuman`, `connected` тепер зберігають історію
+  3 дні (`KEEP_HISTORY=3`) замість 30/вимкнено. `ensureProperty()` приймає
+  кількість днів і лише ПІДВИЩУЄ retention, якщо користувач виставив більше
+  вручну (не знижує). Довгострокові графіки (`heating`, `decisionLog`,
+  `batterySocHist`) лишаються 30 днів.
+
 ## [1.13.2] — 2026-11-01
 
 ### Додано

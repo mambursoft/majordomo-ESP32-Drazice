@@ -35,7 +35,7 @@ use DraziceSmart\SceneBuilder;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.13.2';
+    const MODULE_VERSION = '1.14.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -1296,6 +1296,70 @@ EOD;
             'payload' => (string) $value, 'status' => 'applied',
             'detail' => 'from boiler object property change',
         ));
+    }
+
+    /**
+     * Variant (b) entry point: called by the per-property linked method on the
+     * boiler object whenever a presence property changes (presentPeople,
+     * presenceSessionJson, presenceEvent, presenceEventJson). One place handles
+     * every presence change; extend the switch below for custom reactions.
+     *
+     * Default behaviour: on a presenceEvent change, invoke the configured
+     * PRESENCE_HANDLER (script:Title or Object.method) with parsed params, so
+     * announcements keep working even outside the cycle's own event loop. All
+     * other properties are accepted as a no-op seam for the user to fill in.
+     *
+     * @param string $property changed property name (no object prefix)
+     * @param mixed  $value    new value
+     * @param mixed  $prev     previous value ('' when unknown)
+     */
+    public function onPresenceChange($property, $value, $prev = '')
+    {
+        $this->getConfig();
+
+        switch ($property) {
+            case 'presenceEvent':
+            case 'presenceEventJson':
+                // Parse "event:person" or the JSON payload into handler params.
+                $person = '';
+                $event = '';
+                $duration = 0;
+                $decoded = is_string($value) ? json_decode($value, true) : null;
+                if (is_array($decoded)) {
+                    $person = isset($decoded['person']) ? (string) $decoded['person'] : '';
+                    $event = isset($decoded['event']) ? (string) $decoded['event'] : '';
+                    $duration = isset($decoded['duration_s']) ? (int) $decoded['duration_s'] : 0;
+                } elseif (is_string($value) && strpos($value, ':') !== false) {
+                    $parts = explode(':', $value, 2);
+                    $event = $parts[0];
+                    $person = isset($parts[1]) ? $parts[1] : '';
+                }
+                $this->runPresenceHandler($person, $duration, $event);
+                break;
+
+            case 'presentPeople':
+            case 'presenceSessionJson':
+            default:
+                // Seam: a change was observed and acknowledged. Add custom
+                // reactions here (e.g. lights, logging). Intentionally a no-op
+                // by default to avoid surprising side effects.
+                break;
+        }
+    }
+
+    /** Call the configured PRESENCE_HANDLER (script:Title or Object.method). */
+    private function runPresenceHandler($person, $duration, $event)
+    {
+        $handler = isset($this->config['PRESENCE_HANDLER']) ? (string) $this->config['PRESENCE_HANDLER'] : '';
+        if ($handler === '') {
+            return;
+        }
+        $params = array('person' => $person, 'duration_s' => $duration, 'event' => $event);
+        if (strpos($handler, 'script:') === 0 && function_exists('runScript')) {
+            runScript(substr($handler, 7), $params);
+        } elseif (strpos($handler, 'script:') !== 0 && function_exists('callMethod')) {
+            callMethod($handler, $params);
+        }
     }
 
     private function evaluatePresence($now, $ble)
