@@ -34,6 +34,7 @@
     "boiler_state":      {"domain": "text_sensor",  "name": "Boiler State",        "writable": false},
     "boiler_version":    {"domain": "text_sensor",  "name": "Boiler Version",      "writable": false},
     "boiler_name":       {"domain": "text_sensor",  "name": "Boiler Name",         "writable": false},
+    "boiler_time":       {"domain": "text_sensor",  "name": "Boiler Time",         "writable": false, "note": "внутрішній годинник бойлера (HOME_TIME), формат 'Day HH:MM:SS' напр. 'Mon 14:03:27'; день тижня + час доби (без календарної дати); запитується з init-даними, оновлюється після реконекту"},
     "boiler_setpoint":   {"domain": "sensor",       "name": "Boiler Setpoint",     "unit": "°C", "writable": false, "note": "read-only mirror of the setpoint reported by the boiler (internal climate); null until reported"},
     "boiler_mode":       {"domain": "text_sensor",  "name": "Boiler Mode",         "writable": false, "note": "read-only mirror of the mode reported by the boiler (internal select)"},
     "pair_trace":        {"domain": "text_sensor",  "name": "Boiler Pair Trace",   "writable": false, "note": "кільце останніх 10 подій парингу 'TAG@uptime_ms | ...'; без цифр PIN; публікується лише по подіях"},

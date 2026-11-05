@@ -67,12 +67,12 @@ T::eq(Transport::stringValue(Transport::entity($map, 'text_sensor', 'Boiler Pair
 
 T::group('Transport::SENSITIVE / LEGACY_ENTITIES');
 T::eq(Transport::SENSITIVE['number'][0], 'Boiler Pairing PIN', 'PIN entity declared sensitive');
-T::eq(count(Transport::LEGACY_ENTITIES), 26, '26 unique legacy entities (buildSnapshot + readDiagnostics + BLE scan)');
+T::eq(count(Transport::LEGACY_ENTITIES), 27, '27 unique legacy entities (buildSnapshot + readDiagnostics + BLE scan + boiler clock)');
 $seen = array();
 foreach (Transport::LEGACY_ENTITIES as $p) {
     $seen[$p[0] . '|' . $p[1]] = true;
 }
-T::eq(count($seen), 26, 'legacy entity list has no duplicates');
+T::eq(count($seen), 27, 'legacy entity list has no duplicates');
 T::eq(isset($seen['number|Boiler Pairing PIN']), false, 'legacy list never reads the PIN entity');
 
 T::group('Transport::classifyStateResponse (200 / 404 fallback / errors)');

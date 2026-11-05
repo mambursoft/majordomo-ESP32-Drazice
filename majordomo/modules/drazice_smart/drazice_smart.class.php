@@ -31,11 +31,12 @@ use DraziceSmart\StateCache;
 use DraziceSmart\AjaxApi;
 use DraziceSmart\Explain;
 use DraziceSmart\SceneBuilder;
+use DraziceSmart\ClockCheck;
 
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.14.1';
+    const MODULE_VERSION = '1.15.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -351,6 +352,15 @@ class drazice_smart extends module
             'TELEMETRY_RETENTION_DAYS' => 30,   // drazice_telemetry
             'COMMANDS_RETENTION_DAYS'  => 30,   // drazice_commands
             '_LAST_PRUNE_UTC'          => 0,    // internal: last time tables were pruned
+            // Boiler clock drift check: the ESP reports the boiler's internal
+            // clock (HOME_TIME) over BLE; the module compares it with the server
+            // clock and flags a significant drift. Checked rarely: on a fresh
+            // read, after the link recovers, and at least once a day.
+            'CLOCK_SKEW_THRESHOLD_S' => 120,    // UI-configurable significant-drift threshold
+            '_LAST_CLOCK_CHECK_UTC'  => 0,      // internal: last time the clock was compared
+            '_LAST_CLOCK_SKEW_S'     => '',     // internal: last computed skew (seconds, '' = unknown)
+            '_LAST_BOILER_TIME'      => '',     // internal: last boiler time text we checked
+            '_CLOCK_WAS_OFFLINE'     => 0,      // internal: boiler was unavailable on the previous cycle
             // Event handlers: a script/method called when a value CHANGES.
             // Format: "script:Title" or "Object.method"; empty = no handler.
             // The handler receives $params: event, value, prev (globals too).
@@ -737,6 +747,8 @@ EOD;
             // Actual boiler-reported mode/setpoint (for idempotent writes).
             'reported_mode'   => Transport::stringValue($modeActualJson),
             'reported_target' => Transport::numericValue($setpointActualJson),
+            // Boiler internal clock text ("Day HH:MM:SS"); null when unknown.
+            'boiler_time'     => Transport::stringValue(Transport::entity($map, 'text_sensor', 'Boiler Time')),
         );
     }
 
@@ -878,6 +890,10 @@ EOD;
         if (!empty($this->config['SIMPLE_DEVICES_ENABLED'])) {
             $this->syncSimpleDevices($snapshot, $decision);
         }
+
+        // Boiler clock drift check (rare): on a fresh read, after the link
+        // recovers from an outage, or at least once a day.
+        $this->checkBoilerClock($snapshot, isset($due) ? (bool) $due : false);
 
         // Prune our own history tables at most once per day so they never grow
         // without bound (RPi/SD disk is small). Cheap no-op between runs.
@@ -1439,6 +1455,93 @@ EOD;
     }
 
     /**
+     * Compare the boiler's internal clock (reported over BLE) with the server
+     * clock and flag a significant drift. Called rarely — only when one of:
+     *   - this cycle did a fresh ESP read ($freshRead), OR
+     *   - the boiler just recovered from an outage (was offline, now online), OR
+     *   - at least CLOCK_CHECK_INTERVAL (1 day) passed since the last check.
+     * Writes boilerClock / boilerClockSkewSeconds / boilerClockOk on the object,
+     * and fires the configured event handler on a transition into "not ok".
+     *
+     * @param array $snapshot current snapshot (uses boiler_time, http_available)
+     * @param bool  $freshRead whether this cycle forced a GET /state
+     */
+    private function checkBoilerClock($snapshot, $freshRead)
+    {
+        $o = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
+        $now = time();
+        $online = !empty($snapshot['http_available']);
+        $wasOffline = !empty($this->config['_CLOCK_WAS_OFFLINE']);
+
+        // Track online/offline edge for "check after recovery".
+        if ((int) $this->config['_CLOCK_WAS_OFFLINE'] !== ($online ? 0 : 1)) {
+            $this->config['_CLOCK_WAS_OFFLINE'] = $online ? 0 : 1;
+            $this->saveConfig();
+        }
+
+        if (!$online) {
+            return; // nothing to compare while the boiler is unreachable
+        }
+
+        $boilerRaw = isset($snapshot['boiler_time']) ? $snapshot['boiler_time'] : null;
+        if ($boilerRaw === null || $boilerRaw === '') {
+            return; // ESP has not reported the boiler clock yet
+        }
+
+        $lastCheck = (int) (isset($this->config['_LAST_CLOCK_CHECK_UTC']) ? $this->config['_LAST_CLOCK_CHECK_UTC'] : 0);
+        $dueDaily = ($now - $lastCheck) >= 86400;
+        $recovered = $wasOffline; // offline on the previous cycle, online now
+        if (!$freshRead && !$recovered && !$dueDaily) {
+            return; // not time yet
+        }
+
+        $tz = isset($this->config['TIMEZONE']) ? $this->config['TIMEZONE'] : 'Europe/Kyiv';
+        $threshold = isset($this->config['CLOCK_SKEW_THRESHOLD_S']) ? (int) $this->config['CLOCK_SKEW_THRESHOLD_S'] : 120;
+        $res = ClockCheck::evaluate($boilerRaw, $now, $tz, $threshold);
+        if ($res === null) {
+            return; // unparseable boiler time; leave previous state untouched
+        }
+
+        // Persist state (internal + object properties for UI/history).
+        $prevOk = !isset($this->config['_LAST_CLOCK_SKEW_S']) || $this->config['_LAST_CLOCK_SKEW_S'] === ''
+            ? null
+            : (abs((int) $this->config['_LAST_CLOCK_SKEW_S']) <= $threshold);
+        $this->config['_LAST_CLOCK_CHECK_UTC'] = $now;
+        $this->config['_LAST_CLOCK_SKEW_S'] = (int) $res['skew_s'];
+        $this->config['_LAST_BOILER_TIME'] = (string) $res['boiler'];
+        $this->saveConfig();
+
+        if (function_exists('setGlobal')) {
+            BoilerObject::set($o, 'boilerClock', $res['boiler']);
+            BoilerObject::set($o, 'boilerClockSkewSeconds', (int) $res['skew_s']);
+            BoilerObject::set($o, 'boilerClockOk', $res['ok'] ? 1 : 0);
+        }
+
+        if (function_exists('DebMes')) {
+            DebMes('drazice_smart clock check: boiler=' . $res['boiler'] . ' server=' . $res['server']
+                . ' skew=' . $res['skew_s'] . 's ok=' . ($res['ok'] ? '1' : '0'));
+        }
+
+        // Fire the event handler on a transition into "not ok" (fresh problem).
+        if (!$res['ok'] && $prevOk !== false) {
+            $handler = isset($this->config['EVENT_HANDLER']) ? (string) $this->config['EVENT_HANDLER'] : '';
+            if ($handler !== '') {
+                $params = array(
+                    'event' => 'clock_drift',
+                    'value' => (int) $res['skew_s'],
+                    'boiler' => $res['boiler'],
+                    'server' => $res['server'],
+                );
+                if (strpos($handler, 'script:') === 0 && function_exists('runScript')) {
+                    runScript(substr($handler, 7), $params);
+                } elseif (strpos($handler, 'script:') !== 0 && function_exists('callMethod')) {
+                    callMethod($handler, $params);
+                }
+            }
+        }
+    }
+
+    /**
      * Prune the module's own history tables so they never grow without bound.
      * The RPi stores MySQL on a small SD/flash disk, so every row costs real
      * space. Each table has its own retention (days); 0 keeps it forever.
@@ -1640,6 +1743,36 @@ EOD;
             'decision_human'    => $ex['text'],
             'decision_howto'    => $ex['howto'],
             'decision_target_f' => $this->fmtVal($d['target_c'], ' °C'),
+        ) + $this->clockStrings($s);
+    }
+
+    /**
+     * Boiler-clock drift strings for the UI (display only; the authoritative
+     * check with history/events runs rarely in checkBoilerClock()). Computed
+     * live from the snapshot so the card reflects the latest read.
+     */
+    private function clockStrings($s)
+    {
+        $raw = isset($s['boiler_time']) ? $s['boiler_time'] : null;
+        $tz = isset($this->config['TIMEZONE']) ? $this->config['TIMEZONE'] : 'Europe/Kyiv';
+        $threshold = isset($this->config['CLOCK_SKEW_THRESHOLD_S']) ? (int) $this->config['CLOCK_SKEW_THRESHOLD_S'] : 120;
+        $res = ($raw !== null && $raw !== '') ? ClockCheck::evaluate($raw, time(), $tz, $threshold) : null;
+        if ($res === null) {
+            return array(
+                'boiler_clock_f'     => '—',
+                'boiler_clock_skew_f'=> '—',
+                'boiler_clock_ok'    => true,     // unknown -> do not alarm the UI
+                'boiler_clock_known' => false,
+                'clock_threshold_s'  => $threshold,
+            );
+        }
+        $sign = $res['skew_s'] > 0 ? '+' : '';
+        return array(
+            'boiler_clock_f'     => (string) $res['boiler'],
+            'boiler_clock_skew_f'=> $sign . (int) $res['skew_s'] . ' с',
+            'boiler_clock_ok'    => (bool) $res['ok'],
+            'boiler_clock_known' => true,
+            'clock_threshold_s'  => $threshold,
         );
     }
 
@@ -1673,6 +1806,13 @@ EOD;
         $out['POWER_SOURCE_F']  = SettingsSaver::esc($st['power_source_f']);
         $out['DECISION_TARGET_F'] = SettingsSaver::esc($st['decision_target_f']);
         $out['DECISION_ALLOWED'] = !empty($d['allowed']) ? 1 : 0;
+        // Boiler clock drift (display + highlight when out of threshold).
+        $out['BOILER_CLOCK_F']      = SettingsSaver::esc($st['boiler_clock_f']);
+        $out['BOILER_CLOCK_SKEW_F'] = SettingsSaver::esc($st['boiler_clock_skew_f']);
+        $out['BOILER_CLOCK_OK']     = !empty($st['boiler_clock_ok']) ? 1 : 0;
+        $out['BOILER_CLOCK_KNOWN']  = !empty($st['boiler_clock_known']) ? 1 : 0;
+        $out['CLOCK_THRESHOLD_S']   = (int) $st['clock_threshold_s'];
+        $out['CFG_CLOCK_SKEW_THRESHOLD_S'] = (int) (isset($this->config['CLOCK_SKEW_THRESHOLD_S']) ? $this->config['CLOCK_SKEW_THRESHOLD_S'] : 120);
 
         if (is_array($forecast)) {
             $out['FC_AVAILABLE']  = !empty($forecast['available']) ? 1 : 0;

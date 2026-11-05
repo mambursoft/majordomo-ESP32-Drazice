@@ -73,6 +73,7 @@ class Transport
         array('sensor', 'Boiler Lease Remaining'),
         array('text_sensor', 'Boiler Version'),
         array('text_sensor', 'Boiler Name'),
+        array('text_sensor', 'Boiler Time'),
         array('text_sensor', 'Boiler State'),
         array('number', 'Boiler Requested Target'),
         array('select', 'Boiler Requested Mode'),

@@ -26,6 +26,7 @@ CONF_HEAT_ON = 'heat_on'
 CONF_THERMOSTAT = 'thermostat'
 CONF_CONSUMPTION = 'consumption'
 CONF_BNAME = "b_name"
+CONF_BTIME = "b_time"
 CONF_PAIR_TRACE = "pair_trace"
 CONF_LAST_DISCONNECT = "last_disconnect"
 CONF_PAIR_ATTEMPTS = "pair_attempts"
@@ -58,6 +59,9 @@ CONFIG_SCHEMA = cv.polling_component_schema('600s').extend({
     cv.Optional(CONF_STATE, {"name": "State", "icon": "mdi:connection" }): text_sensor.text_sensor_schema().extend(),
     cv.Optional(CONF_VERSION, {"name": "Version", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
     cv.Optional(CONF_BNAME, {"name": "Name" }): text_sensor.text_sensor_schema().extend(),
+    # LOCAL MODIFICATION: boiler internal clock (HOME_TIME), compared with the
+    # server clock by the PHP module to detect drift.
+    cv.Optional(CONF_BTIME, {"name": "Boiler Time", "icon": "mdi:clock-outline", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
     # LOCAL MODIFICATION (pairing diagnostics, see UPSTREAM.md)
     cv.Optional(CONF_PAIR_TRACE, {"name": "Pair Trace", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
     cv.Optional(CONF_LAST_DISCONNECT, {"name": "Last Disconnect", "entity_category": ENTITY_CATEGORY_DIAGNOSTIC }): text_sensor.text_sensor_schema().extend(),
@@ -127,6 +131,11 @@ async def to_code(config):
         name = cg.new_Pvariable(config[CONF_BNAME][CONF_ID])
         await text_sensor.register_text_sensor(name, config[CONF_BNAME])
         cg.add(var.set_name(name))
+
+    if CONF_BTIME in config:
+        btime = cg.new_Pvariable(config[CONF_BTIME][CONF_ID])
+        await text_sensor.register_text_sensor(btime, config[CONF_BTIME])
+        cg.add(var.set_boiler_time(btime))
 
     if CONF_PAIR_TRACE in config:
         tr = cg.new_Pvariable(config[CONF_PAIR_TRACE][CONF_ID])

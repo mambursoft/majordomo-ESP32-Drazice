@@ -48,6 +48,17 @@
   `on_set_hdo_enabled()`. Потрібен, щоб template-button `Boiler HDO On/Off`
   (packages/policy_guard.yaml) могли вмикати/вимикати HDO-декодер бойлера.
   Самого upstream-методу не змінено.
+- **2026-11 (годинник бойлера):** upstream уже парсив `SBC_PACKET_HOME_TIME`
+  (формат `D.HH:MM:SS`, байт дня + рядок часу), але лише ЛОГУВАВ результат.
+  Додано спостережуваність без зміни BLE-протоколу:
+  - `smartboiler.h/.cpp`: новий text_sensor `boiler_time_txt_` + сетер
+    `set_boiler_time()`; у гілці `HOME_TIME` результат публікується у стабільній
+    формі `"Day HH:MM:SS"` (напр. `Mon 14:03:27`). `day_to_string()` переведено
+    на 3-літерні абревіатури (Mon..Sun) — простіше парсити на боці модуля.
+  - `getInitData()` тепер запитує `HOME_TIME` разом з рештою init-даних, тож
+    час оновлюється на кожному (ре)конекті — зокрема після відновлення зв'язку.
+  - Нове entity через `__init__.py`: `b_time` (text_sensor "Boiler Time").
+  PHP-модуль звіряє цей час з годинником сервера й сигналізує про дрейф.
 
 Решта проєкту (`boiler_guard`, модуль MajorDoMo, документація) — під MIT, див.
 кореневий `LICENSE`.

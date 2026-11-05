@@ -122,6 +122,14 @@
         &nbsp;|&nbsp; <#LANG_DS_ST_COOLDOWN#>: <span data-ds="cooldown_f">[#COOLDOWN_F#]</span>
         &nbsp;|&nbsp; <#LANG_DS_ST_ENERGY#>: <span data-ds="energy_f">[#ENERGY_F#]</span>
       </div>
+      [#if BOILER_CLOCK_KNOWN="1"#]
+      <div class="ds-clock [#if BOILER_CLOCK_OK="1"#]text-muted[#else#]text-danger[#endif#]" data-ds-clock="1" style="font-size:12px;margin-top:6px;[#if BOILER_CLOCK_OK="1"#][#else#]font-weight:bold;[#endif#]">
+        <span class="glyphicon glyphicon-time"></span>
+        <#LANG_DS_ST_CLOCK#>: <span data-ds="boiler_clock_f">[#BOILER_CLOCK_F#]</span>
+        &nbsp;(<#LANG_DS_ST_CLOCK_SKEW#>: <span data-ds="boiler_clock_skew_f">[#BOILER_CLOCK_SKEW_F#]</span>)
+        [#if BOILER_CLOCK_OK="1"#][#else#]&nbsp;— <strong><#LANG_DS_ST_CLOCK_DRIFT#></strong>[#endif#]
+      </div>
+      [#endif#]
     </div>
   </div>
   [#endif#]
@@ -403,6 +411,7 @@
           <p style="font-size:12px;margin:8px 0 0 0;">[#if CFG_TARIFF_ENABLED="1"#]<#LANG_DS_TAR_METER_NOW#>: <strong>[#TARIFF_METER_LOCAL#]</strong> &nbsp;|&nbsp; <#LANG_DS_ST_TARIFF#>: [#if TARIFF_ACTIVE="1"#]<span class="ds-st ds-st-ok"><#LANG_DS_TARIFF_CHEAP_NOW#></span>[#else#]<span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_DAY_NOW#></span>[#endif#][#else#]<#LANG_DS_ST_TARIFF#>: <span class="ds-st ds-st-muted"><#LANG_DS_TARIFF_OFF#></span>[#endif#]</p>
           <div class="row" style="margin-top:10px;">
             <div class="col-sm-6 form-group"><label><#LANG_DS_TIMEZONE#></label><select class="form-control" name="TIMEZONE">[#OPTS_TIMEZONE#]</select><span class="ds-help"><#LANG_DS_H_TIMEZONE#></span></div>
+            <div class="col-sm-6 form-group"><label><#LANG_DS_CLOCK_THRESHOLD#></label><input class="form-control" type="number" min="0" step="1" name="CLOCK_SKEW_THRESHOLD_S" value="[#CFG_CLOCK_SKEW_THRESHOLD_S#]"><span class="ds-help"><#LANG_DS_H_CLOCK_THRESHOLD#></span></div>
           </div>
         </div>
       </div></div>

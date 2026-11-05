@@ -83,6 +83,12 @@ $dictionary = array(
     'DS_ST_ENERGY'       => 'Accumulated energy',
     'DS_ST_POWER'        => 'Power source',
     'DS_ST_SOC'          => 'Battery charge (SOC)',
+    // Boiler clock drift
+    'DS_ST_CLOCK'        => 'Boiler clock',
+    'DS_ST_CLOCK_SKEW'   => 'drift vs server',
+    'DS_ST_CLOCK_DRIFT'  => 'CLOCK OUT OF SYNC — check the time on the boiler',
+    'DS_CLOCK_THRESHOLD' => 'Clock drift threshold (s)',
+    'DS_H_CLOCK_THRESHOLD' => 'If the boiler clock (read over BLE) differs from the server by more than this many seconds, a warning is highlighted. Default 120.',
     'DS_ST_TARIFF'       => 'Tariff now',
     'DS_ST_GUARD'        => 'Local guard state (ESP32)',
     'DS_ST_COOLDOWN'     => 'Cooldown remaining',

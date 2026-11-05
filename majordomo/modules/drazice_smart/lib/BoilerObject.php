@@ -92,6 +92,10 @@ class BoilerObject
             'vacationActive' => $c('Чи активний режим відпустки зараз, 1/0 (лише читання).'),
             'connected'      => $h3('Чи доступний ESP32 по HTTP, 1/0 (лише читання). Архів 3 дні.'),
             'lastSampleUtc'  => $c('UTC час останнього зчитування телеметрії (лише читання).'),
+            // --- boiler internal clock vs server clock (drift check) ---
+            'boilerClock'           => $c('Внутрішній годинник бойлера (день тижня + час доби, напр. "Mon 14:03:27"), прочитаний по BLE (лише читання).'),
+            'boilerClockSkewSeconds'=> $h3('Відхилення годинника бойлера від сервера, с (+ бойлер поспішає). Архів 3 дні.'),
+            'boilerClockOk'         => $c('Чи в межах порога відхилення годинника, 1/0 (лише читання).'),
 
             // --- CONTROL properties (change -> applied to the boiler) ---
             'requestedTarget'   => $w($applied . 'Запит цільової температури, °C (40..80).', 'applyRequestedTarget'),

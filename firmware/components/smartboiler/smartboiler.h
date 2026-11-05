@@ -57,6 +57,10 @@ class SmartBoiler : public PollingComponent,
   void set_state(text_sensor::TextSensor *t) { state_txt_ = t; }
   void set_version(text_sensor::TextSensor *t) { version_ = t; }
   void set_name(text_sensor::TextSensor *t) { name_ = t; }
+  // LOCAL (not upstream): boiler internal clock as reported over BLE
+  // (HOME_TIME, format "Day HH:MM:SS"). The PHP module compares it with the
+  // server clock to detect drift. Requested with the rest of the init data.
+  void set_boiler_time(text_sensor::TextSensor *t) { boiler_time_txt_ = t; }
   // LOCAL MODIFICATION (pairing diagnostics, see UPSTREAM.md)
   void set_pair_trace(text_sensor::TextSensor *t) { pair_trace_txt_ = t; }
   void set_last_disconnect(text_sensor::TextSensor *t) { last_disconnect_txt_ = t; }
@@ -122,6 +126,7 @@ class SmartBoiler : public PollingComponent,
   text_sensor::TextSensor *state_txt_ = nullptr;
   text_sensor::TextSensor *version_ = nullptr;
   text_sensor::TextSensor *name_ = nullptr;
+  text_sensor::TextSensor *boiler_time_txt_ = nullptr;
   SmartBoilerModeSelect *mode_select_ = nullptr;
   SmartBoilerThermostat *thermostat_ = nullptr;
   SmartBoilerPinInput *mPin_ = nullptr;

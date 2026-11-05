@@ -158,6 +158,7 @@ void SmartBoiler::dump_config() {
   LOG_NUMBER("  ", "Pairing PIN", mPin_);
   LOG_TEXT_SENSOR("  ", "Version", version_);
   LOG_TEXT_SENSOR("  ", "State", state_txt_);
+  LOG_TEXT_SENSOR("  ", "Boiler Time", boiler_time_txt_);
   LOG_TEXT_SENSOR("  ", "Pair Trace", pair_trace_txt_);
   LOG_TEXT_SENSOR("  ", "Last Disconnect", last_disconnect_txt_);
   LOG_SENSOR("  ", "Pair Attempts", pair_attempts_sensor_);
@@ -315,6 +316,10 @@ void SmartBoiler::getInitData() {
   this->request_value(SBPacket::SBC_PACKET_HOME_SENSOR2);
   this->request_value(SBPacket::SBC_PACKET_HOME_HSRCSTATE);
   this->request_value(SBPacket::SBC_PACKET_HDO_ONOFF);
+  // LOCAL: boiler internal clock. getInitData() runs on every (re)connect, so
+  // the time is refreshed whenever the link is (re)established after an outage,
+  // and alongside the other data on a fresh read.
+  this->request_value(SBPacket::SBC_PACKET_HOME_TIME);
 }
 
 void SmartBoiler::update() {
@@ -494,8 +499,12 @@ void SmartBoiler::handle_incoming(const uint8_t *value, uint16_t value_len) {
       // the rest is a string
       auto time = result.mString.substr(2,8);
       char buffer[30];
-      sprintf(buffer, "%s, %s", this->day_to_string(day), time.c_str());
+      sprintf(buffer, "%s %s", this->day_to_string(day), time.c_str());
       ESP_LOGD(TAG, "Water heater internal time: %s", buffer);
+      // LOCAL: publish so the PHP module can compare it with the server clock.
+      // Stable, human-readable form "Day HH:MM:SS" (e.g. "Mon 14:03:27").
+      if (this->boiler_time_txt_)
+        this->boiler_time_txt_->publish_state(buffer);
       break;
     }
     default:
@@ -606,21 +615,23 @@ const char *SmartBoiler::state_to_string(ConnectionState state) {
 }
 
 const char *SmartBoiler::day_to_string(uint8_t day) {
+  // 3-letter abbreviations: compact, stable, easy for the PHP module to parse.
+  // Boiler day index is 0=Monday .. 6=Sunday.
   switch (day) {
     case 0:
-      return "Monday";
+      return "Mon";
     case 1:
-      return "Tuesday";
+      return "Tue";
     case 2:
-      return "Wednesday";
+      return "Wed";
     case 3:
-      return "Thursday";
+      return "Thu";
     case 4:
-      return "Friday";
+      return "Fri";
     case 5:
-      return "Saturday";
+      return "Sat";
     case 6:
-      return "Sunday";
+      return "Sun";
     default:
       return "Unknown";
   }

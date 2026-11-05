@@ -59,6 +59,7 @@ class SettingsSaver
                 'PRESENCE_NOTIFY_AFTER_S', 'PRESENCE_TOO_LONG_AFTER_S',
                 'PRESENCE_RENOTIFY_EVERY_S',
                 'PRESENCE_RETENTION_DAYS', 'TELEMETRY_RETENTION_DAYS', 'COMMANDS_RETENTION_DAYS',
+                'CLOCK_SKEW_THRESHOLD_S',
             ),
             'json_object' => array('PRESENCE_ROSTER_JSON', 'SIMPLE_DEVICES_MAP_JSON'),
         );
