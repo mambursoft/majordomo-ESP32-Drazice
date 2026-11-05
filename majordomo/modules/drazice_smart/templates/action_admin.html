@@ -138,40 +138,50 @@
   [#if TAB="setup"#]
   <p class="text-muted"><#LANG_DS_DEV_INTRO#></p>
 
-  <!-- (a) Connection settings (moved from old Devices tab) -->
-  <form method="post" action="?tab=setup">
-    <input type="hidden" name="op" value="save_settings">
-    <input type="hidden" name="csrf" value="[#CSRF#]">
-    <input type="hidden" name="_cb" value="ESP_DIGEST">
-    <div class="row">
-      <div class="col-md-4 form-group">
-        <label><#LANG_DS_ESP_HOST#></label>
-        <input class="form-control" name="ESP_HOST" value="[#CFG_ESP_HOST#]" placeholder="172.16.0.150">
-        <small class="text-muted"><#LANG_DS_H_ESP_HOST#></small>
-        [#if HOST_OK="1"#]<div class="text-success" style="font-size:12px;">✔ <#LANG_DS_HOST_OK#></div>
-        [#else#]<div class="text-danger" style="font-size:12px;"><#LANG_DS_HOST_INVALID#> [#HOST_REASON#]</div>[#endif#]
-      </div>
-      <div class="col-md-2 form-group">
-        <label><#LANG_DS_ESP_PORT#></label>
-        <input class="form-control" name="ESP_PORT" value="[#CFG_ESP_PORT#]">
-      </div>
-      <div class="col-md-3 form-group">
-        <label><#LANG_DS_ESP_USER#></label>
-        <input class="form-control" name="ESP_USER" value="[#CFG_ESP_USER#]">
-      </div>
-      <div class="col-md-3 form-group">
-        <label><#LANG_DS_ESP_PASS#></label>
-        <input class="form-control" type="password" name="ESP_PASS" value="[#CFG_ESP_PASS#]">
-        <small class="text-muted"><#LANG_DS_H_ESP_PASS#></small>
-      </div>
+  <!-- (a) Connection settings — panel, full width (wide inputs need the room) -->
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><#LANG_DS_ESP_HOST#></strong></div>
+    <div class="panel-body">
+      <form method="post" action="?tab=setup">
+        <input type="hidden" name="op" value="save_settings">
+        <input type="hidden" name="csrf" value="[#CSRF#]">
+        <input type="hidden" name="_cb" value="ESP_DIGEST">
+        <div class="row">
+          <div class="col-md-4 form-group">
+            <label><#LANG_DS_ESP_HOST#></label>
+            <input class="form-control" name="ESP_HOST" value="[#CFG_ESP_HOST#]" placeholder="172.16.0.150">
+            <small class="text-muted"><#LANG_DS_H_ESP_HOST#></small>
+            [#if HOST_OK="1"#]<div class="text-success" style="font-size:12px;">✔ <#LANG_DS_HOST_OK#></div>
+            [#else#]<div class="text-danger" style="font-size:12px;"><#LANG_DS_HOST_INVALID#> [#HOST_REASON#]</div>[#endif#]
+          </div>
+          <div class="col-md-2 form-group">
+            <label><#LANG_DS_ESP_PORT#></label>
+            <input class="form-control" name="ESP_PORT" value="[#CFG_ESP_PORT#]">
+          </div>
+          <div class="col-md-3 form-group">
+            <label><#LANG_DS_ESP_USER#></label>
+            <input class="form-control" name="ESP_USER" value="[#CFG_ESP_USER#]">
+          </div>
+          <div class="col-md-3 form-group">
+            <label><#LANG_DS_ESP_PASS#></label>
+            <input class="form-control" type="password" name="ESP_PASS" value="[#CFG_ESP_PASS#]">
+            <small class="text-muted"><#LANG_DS_H_ESP_PASS#></small>
+          </div>
+        </div>
+        <div class="checkbox"><label><input type="checkbox" name="ESP_DIGEST" value="1" [#if CFG_ESP_DIGEST="1"#]checked[#endif#]> <#LANG_DS_ESP_DIGEST#></label></div>
+        <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
+      </form>
     </div>
-    <div class="checkbox"><label><input type="checkbox" name="ESP_DIGEST" value="1" [#if CFG_ESP_DIGEST="1"#]checked[#endif#]> <#LANG_DS_ESP_DIGEST#></label></div>
-    <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
-  </form>
+  </div>
 
-  <hr>
+  <!-- (b)+(c) Probe + PIN pairing: two responsive columns on wide screens,
+       stacked on phones (col-md-* collapse to full width below 992px). -->
+  <div class="row">
+  <div class="col-md-5">
   <!-- (b) Probe one host + render PROBE_RESULT -->
-  <h4><#LANG_DS_PROBE_HOST#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><#LANG_DS_PROBE_HOST#></strong></div>
+    <div class="panel-body">
   <form method="post" action="?tab=setup" class="form-inline" style="margin-bottom:10px;">
     <input type="hidden" name="op" value="probe_host">
     <input type="hidden" name="csrf" value="[#CSRF#]">
@@ -189,8 +199,11 @@
       <div class="alert alert-warning"><span class="glyphicon glyphicon-remove-sign"></span> <#LANG_DS_PROBE_UNREACHABLE#> <code>[#PROBE_HOST#]</code></div>
     [#endif#]
   [#endif#]
+    </div>
+  </div>
+  </div>
 
-  <hr>
+  <div class="col-md-7">
   <!-- (c) PIN pairing (moved out of Diagnostics) -->
   <div class="panel panel-default">
     <div class="panel-heading"><strong><#LANG_DS_DG_PIN#></strong></div>
@@ -255,6 +268,8 @@
       <small class="text-muted"><#LANG_DS_PAIR_LEGEND#></small>
     </div>
   </div>
+  </div><!-- /col-md-7 -->
+  </div><!-- /row (probe + PIN) -->
   [#endif#]
 
   <!-- ================= CONTROL ================= -->
@@ -544,18 +559,25 @@
   <!-- ================= ADVANCED ================= -->
   [#if TAB="advanced"#]
 
+  <!-- Responsive 2-column layout: panels sit side by side on wide screens and
+       stack to full width on phones/tablets (col-md-* collapse below 992px). -->
+  <div class="row">
+  <div class="col-md-6">
+
   <!-- (a) /24 network sweep -->
-  <h4><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-search"></span> <#LANG_DS_FIND_ESP#></strong></div>
+    <div class="panel-body">
   <p class="text-muted"><#LANG_DS_SCAN_HINT#></p>
   <form method="post" action="?tab=advanced" style="margin-bottom:10px;">
     <input type="hidden" name="op" value="scan_network">
     <input type="hidden" name="csrf" value="[#CSRF#]">
     <div class="row">
-      <div class="col-md-4 form-group">
+      <div class="col-md-6 form-group">
         <label><#LANG_DS_BASE_IP#></label>
         <input class="form-control" name="base_ip" placeholder="172.16.0.1">
       </div>
-      <div class="col-md-2 form-group">
+      <div class="col-md-6 form-group">
         <label><#LANG_DS_MAX_HOSTS#></label>
         <input class="form-control" name="max_hosts" value="64">
       </div>
@@ -575,10 +597,13 @@
       </tbody></table>
     </div>
   [#endif#]
+    </div>
+  </div>
 
-  <hr>
   <!-- (b) BLE boiler scan (optional) -->
-  <h4><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></strong></div>
+    <div class="panel-body">
   <p>
     <button type="button" id="ds-ble-scan" class="btn btn-default"><span class="glyphicon glyphicon-bluetooth"></span> <#LANG_DS_BLE_TITLE#></button>
     <span class="ds-spinner text-muted" hidden><span class="glyphicon glyphicon-refresh"></span> <#LANG_DS_LOADING#></span>
@@ -622,10 +647,16 @@
     <p class="text-muted"><span class="glyphicon glyphicon-info-sign"></span> <#LANG_DS_BLE_OPTIONAL#></p>
   [#endif#]
   </div>
+    </div>
+  </div>
 
-  <hr>
+  </div><!-- /col-md-6 (left: network + BLE) -->
+  <div class="col-md-6">
+
   <!-- (c) Simple Devices map -->
-  <h4><span class="glyphicon glyphicon-th-large"></span> <#LANG_DS_TAB_SIMPLEDEV#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-th-large"></span> <#LANG_DS_TAB_SIMPLEDEV#></strong></div>
+    <div class="panel-body">
   <p class="text-muted"><#LANG_DS_SD_INTRO#></p>
   <div class="alert alert-info" style="font-size:12px;">
     <strong><#LANG_DS_SD_WHY4_TITLE#></strong>
@@ -655,7 +686,7 @@
 
   <!-- Link status of every simple device; the create button is offered only
        while at least one device is not linked yet. -->
-  <table class="table table-condensed" style="max-width:900px;">
+  <table class="table table-condensed">
     <thead><tr><th><#LANG_DS_SD_COL_DEVICE#></th><th><#LANG_DS_SD_COL_OBJECT#></th><th><#LANG_DS_SD_COL_TYPE#></th><th><#LANG_DS_SD_COL_STATUS#></th></tr></thead>
     <tbody>
     [#begin SD_ROWS#]
@@ -699,13 +730,16 @@
     </details>
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
+    </div>
+  </div>
 
-  <hr>
   <!-- (d) Presence -->
-  <h4><span class="glyphicon glyphicon-user"></span> <#LANG_DS_TAB_PRESENCE#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-user"></span> <#LANG_DS_TAB_PRESENCE#></strong></div>
+    <div class="panel-body">
   <div class="alert alert-warning" style="font-size:12px;"><#LANG_DS_PR_WARN#></div>
   <p class="text-muted"><#LANG_DS_PR_INTRO#></p>
-  <div class="panel panel-default" style="max-width:900px;"><div class="panel-body" style="font-size:12px;">
+  <div class="panel panel-default"><div class="panel-body" style="font-size:12px;">
     <strong><#LANG_DS_PR_SOURCE_TITLE#></strong>
     <p style="margin:6px 0;"><#LANG_DS_PR_SOURCE_HINT#></p>
     <div><#LANG_DS_PR_WIFI_NOW#>:</div>
@@ -737,10 +771,19 @@
 
     <button class="btn btn-primary" type="submit"><#LANG_DS_SAVE#></button>
   </form>
+    </div>
+  </div>
 
-  <hr>
+  </div><!-- /col-md-6 (right: simple devices + presence) -->
+  </div><!-- /row (advanced top) -->
+
+  <!-- Second responsive row: HDO override + event handler. -->
+  <div class="row">
+  <div class="col-md-6">
   <!-- (e) HDO solar override + diagnostic switch -->
-  <h4><span class="glyphicon glyphicon-flash"></span> <#LANG_DS_HDO_TITLE#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-flash"></span> <#LANG_DS_HDO_TITLE#></strong></div>
+    <div class="panel-body">
   <p class="text-muted"><#LANG_DS_HDO_INTRO#></p>
   <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="HDO_CONTROL_ENABLED,HDO_CONTROL_DRY_RUN">
@@ -755,10 +798,15 @@
     <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="1"><#LANG_DS_HDO_BTN_ON#></button>
     <button class="btn btn-default btn-sm" type="button" data-ds-op="set_hdo" data-ds-value="0"><#LANG_DS_HDO_BTN_OFF#></button>
   </div>
+    </div>
+  </div>
+  </div><!-- /col-md-6 (HDO) -->
 
-  <hr>
+  <div class="col-md-6">
   <!-- (e2) Event handler -->
-  <h4><span class="glyphicon glyphicon-bell"></span> <#LANG_DS_EVT_TITLE#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-bell"></span> <#LANG_DS_EVT_TITLE#></strong></div>
+    <div class="panel-body">
   <p class="text-muted"><#LANG_DS_EVT_INTRO#></p>
   <form method="post" action="?tab=advanced">
     <input type="hidden" name="op" value="save_settings"><input type="hidden" name="csrf" value="[#CSRF#]"><input type="hidden" name="_cb" value="EVENT_ON_HEATING,EVENT_ON_STATUS,EVENT_ON_MODE,EVENT_ON_TARIFF,EVENT_ON_POWER,EVENT_ON_TEMP_STEP">
@@ -781,12 +829,19 @@
     </div>
     <button class="btn btn-primary" type="submit"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_DS_SAVE#></button>
   </form>
+    </div>
+  </div>
+  </div><!-- /col-md-6 (event handler) -->
+  </div><!-- /row (advanced: HDO + event handler) -->
 
-  <hr>
   <!-- (f) Scene builder -->
-  <h4><span class="glyphicon glyphicon-dashboard"></span> <#LANG_DS_SCENE_TITLE#></h4>
+  <div class="panel panel-default">
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-dashboard"></span> <#LANG_DS_SCENE_TITLE#></strong></div>
+    <div class="panel-body">
   <p class="text-muted"><#LANG_DS_SCENE_INTRO#></p>
   <button class="btn btn-success" type="button" data-ds-op="create_scene"><span class="glyphicon glyphicon-plus"></span> <#LANG_DS_SCENE_BTN#></button>
+    </div>
+  </div>
   [#endif#]
 
   <!-- ================= LOG ================= -->
