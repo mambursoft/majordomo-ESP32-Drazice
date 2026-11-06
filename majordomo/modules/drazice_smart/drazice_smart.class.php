@@ -36,7 +36,7 @@ use DraziceSmart\ClockCheck;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.15.1';
+    const MODULE_VERSION = '1.16.0';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -357,6 +357,7 @@ class drazice_smart extends module
             // clock and flags a significant drift. Checked rarely: on a fresh
             // read, after the link recovers, and at least once a day.
             'CLOCK_SKEW_THRESHOLD_S' => 120,    // UI-configurable significant-drift threshold
+            '_OBJECT_SCHEMA_VERSION' => '',     // internal: module version the boiler object was last (re)applied for
             '_LAST_CLOCK_CHECK_UTC'  => 0,      // internal: last time the clock was compared
             '_LAST_CLOCK_SKEW_S'     => '',     // internal: last computed skew (seconds, '' = unknown)
             '_LAST_BOILER_TIME'      => '',     // internal: last boiler time text we checked
@@ -785,6 +786,11 @@ EOD;
         $this->getConfig();
         $now = time();
 
+        // Keep the boiler object (properties, handler methods, ONCHANGE links,
+        // history retention) in step with the deployed code: re-applied once
+        // per module version, so a deploy never needs a reinstall.
+        $this->ensureObjectSchema();
+
         // LOW-TRAFFIC READ: fetch /state from the ESP only every
         // CYCLE_READ_INTERVAL_S (default 60s), with exponential backoff when the
         // ESP is unreachable. Between fetches we reuse the DB cache, so the
@@ -1066,6 +1072,12 @@ EOD;
     private function applyBoilerState($snapshot, $mode, $target, $reason)
     {
         if (empty($snapshot['http_available'])) {
+            return;
+        }
+        // The ESP32 guard in FAULT silently drops every mode/target request, so
+        // a "sent" would be a lie (and would repeat every WRITE_COOLDOWN_S). The
+        // planner already reports 'guard_fault'; just do not write.
+        if (isset($snapshot['guard_state']) && $snapshot['guard_state'] === 'FAULT') {
             return;
         }
         $target = (int) $target;
@@ -1450,6 +1462,35 @@ EOD;
                     'duration_s' => isset($ev['duration_s']) ? $ev['duration_s'] : 0,
                     'event'      => isset($ev['event']) ? $ev['event'] : 'long',
                 ));
+            }
+        }
+    }
+
+    /**
+     * Re-apply the boiler object definition (BoilerObject::ensureObject) when
+     * the module version changed since it was last applied. ensureObject() is
+     * idempotent and cheap; running it once per version means property
+     * descriptions, history retention, class-level handler methods and the
+     * ONCHANGE links always match the code that is actually deployed.
+     * Marked done only on success, so a failure is retried on the next cycle.
+     */
+    private function ensureObjectSchema()
+    {
+        $applied = isset($this->config['_OBJECT_SCHEMA_VERSION']) ? (string) $this->config['_OBJECT_SCHEMA_VERSION'] : '';
+        if ($applied === self::MODULE_VERSION) {
+            return;
+        }
+        if (!BoilerObject::available()) {
+            return;
+        }
+        $title = isset($this->config['BOILER_OBJECT']) ? $this->config['BOILER_OBJECT'] : 'EspBoiler';
+        $res = BoilerObject::ensureObject($title, $this->name);
+        if (!empty($res['ok'])) {
+            $this->config['_OBJECT_SCHEMA_VERSION'] = self::MODULE_VERSION;
+            $this->saveConfig();
+            if (function_exists('DebMes')) {
+                DebMes('drazice_smart: object schema applied for v' . self::MODULE_VERSION
+                    . ' (' . json_encode($res) . ')');
             }
         }
     }

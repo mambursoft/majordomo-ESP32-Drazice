@@ -5,6 +5,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
+#include "heat_tracker.h"
 #include <string>
 
 namespace esphome {
@@ -44,7 +45,10 @@ class BoilerGuard : public Component {
   void set_heating_sensor(binary_sensor::BinarySensor *s) { heating_sensor_ = s; }
   void set_max_continuous_heat_s(uint32_t v) { max_continuous_heat_s_ = v; }
   void set_min_pause_s(uint32_t v) { min_pause_s_ = v; }
-  void set_heat_false_debounce_s(uint32_t v) { heat_false_debounce_s_ = v; }
+  void set_heat_false_debounce_s(uint32_t v) {
+    heat_false_debounce_s_ = v;
+    heat_.set_debounce_s(v);
+  }
   void set_lease_ttl_s(uint32_t v) { lease_ttl_s_ = v; }
   void set_command_timeout_s(uint32_t v) { command_timeout_s_ = v; }
 
@@ -62,7 +66,7 @@ class BoilerGuard : public Component {
   // --- геттери для readback / діагностики ---
   float get_requested_target() { return requested_target_; }
   std::string get_requested_mode() { return requested_mode_; }
-  uint32_t get_continuous_heat_seconds() { return cont_heat_s_; }
+  uint32_t get_continuous_heat_seconds() { return heat_.continuous_s(); }
   uint32_t get_cooldown_remaining_s();
   uint32_t get_lease_remaining_s();
   std::string get_state_text();
@@ -95,11 +99,8 @@ class BoilerGuard : public Component {
   float requested_target_{NAN};
   std::string requested_mode_{};
 
-  // облік фактичного нагріву
-  bool heat_confirmed_{false};
-  uint32_t heat_true_since_s_{0};
-  uint32_t heat_false_since_s_{0};
-  uint32_t cont_heat_s_{0};
+  // облік фактичного нагріву (debounce Heat=false рахується за часом, див. heat_tracker.h)
+  HeatTracker heat_;
 
   // cooldown
   bool in_cooldown_{false};

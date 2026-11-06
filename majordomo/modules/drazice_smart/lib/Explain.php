@@ -22,7 +22,7 @@ class Explain
     public static function reasonCodes()
     {
         return array(
-            'init', 'esp_unreachable', 'heat_state_unknown', 'temp_unknown', 'cooldown_active',
+            'init', 'esp_unreachable', 'heat_state_unknown', 'temp_unknown', 'guard_fault', 'cooldown_active',
             'power_unknown', 'battery_source_block', 'manual_boost', 'charge_priority_wait',
             'charge_priority_soc_unknown', 'comfort_minimum', 'solar_surplus',
             'solar_surplus_satisfied', 'cheap_tariff', 'cheap_tariff_satisfied', 'idle_comfort_ok',
@@ -39,7 +39,7 @@ class Explain
         }
         return array_merge($k, array(
             'HT_HEADER_HOLD', 'HT_HEADER_HEAT', 'HT_OR', 'HT_NOT_SENT', 'HT_WHY_AUTO_OFF', 'HT_WHY_DRY',
-            'HT_ESP', 'HT_BLE', 'HT_COOLDOWN', 'HT_PWR_NO_SIGNAL', 'HT_PWR_NO_POLARITY', 'HT_PWR_STALE',
+            'HT_ESP', 'HT_BLE', 'HT_GUARD_FAULT', 'HT_COOLDOWN', 'HT_PWR_NO_SIGNAL', 'HT_PWR_NO_POLARITY', 'HT_PWR_STALE',
             'HT_BAT_GRID', 'HT_BAT_ALLOW', 'HT_BAT_BOOST', 'HT_SURPLUS_SOC', 'HT_SURPLUS_NIGHT',
             'HT_SURPLUS_ENABLE', 'HT_CP_SOC', 'HT_CP_DISABLE', 'HT_CP_SOC_PROP', 'HT_BOOST',
             'HT_COMFORT', 'HT_TARIFF_WAIT', 'HT_TARIFF_RAISE', 'HT_TARIFF_ENABLE', 'HT_TARIFF_SAT',
@@ -135,6 +135,8 @@ class Explain
             case 'heat_state_unknown':
             case 'temp_unknown':
                 return array('HT_BLE');
+            case 'guard_fault':
+                return array('HT_GUARD_FAULT');
             case 'cooldown_active':
                 return array('HT_COOLDOWN');
             case 'power_unknown':

@@ -139,20 +139,23 @@ class BoilerObject
             return array('ok' => false, 'reason' => 'object_create_failed');
         }
 
-        // 2. Properties with descriptions; methods for control properties.
+        // 2. Properties with descriptions; handler methods + ONCHANGE links.
+        $objRow = SQLSelectOne("SELECT CLASS_ID FROM objects WHERE ID=" . (int) $objectId);
+        $classId = is_array($objRow) ? (int) $objRow['CLASS_ID'] : 0;
         $created = 0;
+        $linked = 0;
         foreach (self::catalogue() as $name => $def) {
             $histDays = isset($def['history']) ? (int) $def['history'] : 0;
             self::ensureProperty($objectId, $name, $def['desc'], $histDays);
-            if (!empty($def['control']) && $def['method']) {
-                self::ensureControlMethod($objectId, $objectTitle, $name, $def['method'], $moduleName);
-            } elseif (!empty($def['onchange']) && $def['method']) {
-                // Presence (variant b): per-property linked method fired on change.
-                self::ensurePresenceMethod($objectId, $objectTitle, $name, $def['method'], $moduleName);
+            if (!empty($def['method']) && (!empty($def['control']) || !empty($def['onchange']))) {
+                $kind = !empty($def['control']) ? 'control' : 'presence';
+                if (self::ensureHandlerMethod($objectId, $classId, $name, $def['method'], $kind, $moduleName)) {
+                    $linked++;
+                }
             }
             $created++;
         }
-        return array('ok' => true, 'object' => $objectTitle, 'properties' => $created);
+        return array('ok' => true, 'object' => $objectTitle, 'properties' => $created, 'linked' => $linked);
     }
 
     /**
@@ -203,87 +206,85 @@ class BoilerObject
     }
 
     /**
-     * Attach a method to the object, linked to a control property, so the method
-     * runs whenever that property changes. The method body calls back into the
-     * module's cycle handler, which applies the change through guarded REST.
+     * PHP source of an auto-generated handler method. Pure (no DB), so a unit
+     * test can check it. The code runs inside MajorDoMo's callMethod() eval, so
+     * $this is the boiler object (works for a CLASS-level method too) and
+     * $params carries PROPERTY / NEW_VALUE / OLD_VALUE / SOURCE from setProperty().
+     *
+     * @param string $kind     'control' (change is applied to the boiler) or
+     *                         'presence' (change is routed to onPresenceChange)
+     * @param string $property property name on the object
      */
-    private static function ensureControlMethod($objectId, $objectTitle, $property, $methodName, $moduleName)
+    public static function handlerCode($kind, $property, $moduleName)
     {
-        $exists = SQLSelectOne("SELECT ID FROM methods WHERE OBJECT_ID=" . (int) $objectId
-            . " AND TITLE='" . self::safe($methodName) . "'");
-        // The method code routes the change to the module. callMethodSafe keeps
-        // it defensive if the module class is not loadable at call time.
-        $code = "// AUTO: change of '" . $property . "' is applied to the boiler.\n"
+        $new = "(isset(\$params['NEW_VALUE']) ? \$params['NEW_VALUE'] : getGlobal(\$this->object_title . '." . $property . "'))";
+        $old = "(isset(\$params['OLD_VALUE']) ? \$params['OLD_VALUE'] : '')";
+        if ($kind === 'control') {
+            $head = "// AUTO: a change of '" . $property . "' is applied to the boiler (guarded REST).\n";
+            $call = "\$m->applyObjectControl('" . $property . "', " . $new . ");";
+        } else {
+            $head = "// AUTO: fired on every change of '" . $property . "' (presence). Extend onPresenceChange().\n";
+            $call = "\$m->onPresenceChange('" . $property . "', " . $new . ", " . $old . ");";
+        }
+        return $head
             . "if (!class_exists('drazice_smart')) {\n"
             . "    @include_once(DIR_MODULES.'" . $moduleName . "/" . $moduleName . ".class.php');\n"
             . "}\n"
             . "if (class_exists('drazice_smart')) {\n"
             . "    \$m = new drazice_smart();\n"
-            . "    \$m->applyObjectControl('" . $property . "', getGlobal('" . $objectTitle . "." . $property . "'));\n"
+            . "    " . $call . "\n"
             . "}\n";
-
-        if (is_array($exists) && !empty($exists['ID'])) {
-            $rec = SQLSelectOne("SELECT * FROM methods WHERE ID=" . (int) $exists['ID']);
-            $rec['CODE'] = $code;
-            $rec['DESCRIPTION'] = 'AUTO: застосовує зміну властивості ' . $property . ' до бойлера (guarded).';
-            SQLUpdate('methods', $rec);
-            return (int) $exists['ID'];
-        }
-        $rec = array(
-            'OBJECT_ID'   => (int) $objectId,
-            'CLASS_ID'    => 0,
-            'TITLE'       => $methodName,
-            'DESCRIPTION' => 'AUTO: застосовує зміну властивості ' . $property . ' до бойлера (guarded).',
-            'CODE'        => $code,
-        );
-        return (int) SQLInsert('methods', $rec);
     }
 
     /**
-     * Variant (b): one linked method PER presence property, fired by MajorDoMo
-     * on every value change. Creates the method on the object AND sets
-     * properties.ONCHANGE = methodName so the core setProperty() path invokes
-     * EspBoiler.<method>() whenever the value changes. The default body routes
-     * to the module (onPresenceChange), which the user can extend; it is a safe
-     * no-op when the module class cannot be loaded.
+     * Create/refresh the handler method for a property and link it to the
+     * property (properties.ONCHANGE). Idempotent.
+     *
+     * The method lives on the CLASS (CLASS_ID = object's class, OBJECT_ID = 0),
+     * not on the single object, because the MajorDoMo object editor builds the
+     * "run method on change" list from CLASS methods only. A method that exists
+     * only on the object still runs, but is invisible in the UI, and saving the
+     * property in the UI would then blank ONCHANGE. Any older object-level copy
+     * created by this module (DESCRIPTION starts with "AUTO:") is removed so it
+     * cannot shadow the class method.
+     *
+     * @return bool true when the method exists and the property is linked
      */
-    private static function ensurePresenceMethod($objectId, $objectTitle, $property, $methodName, $moduleName)
+    private static function ensureHandlerMethod($objectId, $classId, $property, $methodName, $kind, $moduleName)
     {
-        // MajorDoMo passes $params (PROPERTY, NEW_VALUE, OLD_VALUE, SOURCE) to
-        // an ONCHANGE method. Forward them to the module so one place handles
-        // all presence changes; keep a clear seam for the user to customise.
-        $code = "// AUTO: fired on every change of '" . $property . "' (variant b).\n"
-            . "if (!class_exists('drazice_smart')) {\n"
-            . "    @include_once(DIR_MODULES.'" . $moduleName . "/" . $moduleName . ".class.php');\n"
-            . "}\n"
-            . "if (class_exists('drazice_smart')) {\n"
-            . "    \$m = new drazice_smart();\n"
-            . "    \$m->onPresenceChange('" . $property . "', (isset(\$params['NEW_VALUE']) ? \$params['NEW_VALUE'] : getGlobal('" . $objectTitle . "." . $property . "')), (isset(\$params['OLD_VALUE']) ? \$params['OLD_VALUE'] : ''));\n"
-            . "}\n";
-        $desc = 'AUTO: обробник зміни властивості ' . $property . ' (присутність, variant b).';
+        if ($classId <= 0) {
+            return false;
+        }
+        $code = self::handlerCode($kind, $property, $moduleName);
+        $desc = ($kind === 'control')
+            ? 'AUTO: застосовує зміну властивості ' . $property . ' до бойлера (guarded).'
+            : 'AUTO: обробник зміни властивості ' . $property . ' (присутність).';
 
-        $exists = SQLSelectOne("SELECT ID FROM methods WHERE OBJECT_ID=" . (int) $objectId
-            . " AND TITLE='" . self::safe($methodName) . "'");
+        $exists = SQLSelectOne("SELECT ID FROM methods WHERE CLASS_ID=" . (int) $classId
+            . " AND OBJECT_ID=0 AND TITLE='" . self::safe($methodName) . "'");
         if (is_array($exists) && !empty($exists['ID'])) {
             $rec = SQLSelectOne("SELECT * FROM methods WHERE ID=" . (int) $exists['ID']);
             $rec['CODE'] = $code;
             $rec['DESCRIPTION'] = $desc;
             SQLUpdate('methods', $rec);
-            $methodId = (int) $exists['ID'];
         } else {
             $rec = array(
-                'OBJECT_ID'   => (int) $objectId,
-                'CLASS_ID'    => 0,
+                'CLASS_ID'    => (int) $classId,
+                'OBJECT_ID'   => 0,
                 'TITLE'       => $methodName,
                 'DESCRIPTION' => $desc,
                 'CODE'        => $code,
             );
-            $methodId = (int) SQLInsert('methods', $rec);
+            SQLInsert('methods', $rec);
         }
 
-        // Link the method to the property's ONCHANGE so core fires it on change.
-        self::setOnChange($objectId, $property, $methodName);
-        return $methodId;
+        // Drop our own stale object-level copy (it would override the class method).
+        if (function_exists('SQLExec')) {
+            SQLExec("DELETE FROM methods WHERE OBJECT_ID=" . (int) $objectId
+                . " AND TITLE='" . self::safe($methodName) . "' AND DESCRIPTION LIKE 'AUTO:%'");
+        }
+
+        return self::setOnChange($objectId, $property, $methodName) > 0;
     }
 
     /** Set properties.ONCHANGE = method for a given property (idempotent). */

@@ -27,7 +27,7 @@ namespace DraziceSmart;
 
 class Planner
 {
-    const ALGO_VERSION = '1.1.0';
+    const ALGO_VERSION = '1.2.0';
 
     /**
      * @param array $s   snapshot (see Repository::buildSnapshot keys)
@@ -70,6 +70,18 @@ class Planner
             return self::fill($r, 'hold', null, null,
                 'temp_unknown', 2, false,
                 'Немає валідної температури бойлера — очікуємо дані.');
+        }
+
+        // --- Level 2: the ESP32 guard is in FAULT ------------------------------
+        // In FAULT the guard silently DROPS every mode/target request (it cannot
+        // prove the boiler stopped heating), and it reports cooldown_remaining=0.
+        // Without this rule the planner would say "heat / allowed" and the module
+        // would keep sending commands that never reach the boiler (seen in
+        // production: a boost was "sent" 7 times and never applied).
+        if (isset($s['guard_state']) && $s['guard_state'] === 'FAULT') {
+            return self::fill($r, 'hold', null, null,
+                'guard_fault', 2, false,
+                'Захист ESP32 у стані FAULT: він ігнорує всі команди, керування бойлером неможливе.');
         }
 
         // --- Level 3: cooldown / continuous heat -----------------------------

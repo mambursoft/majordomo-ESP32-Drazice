@@ -109,3 +109,25 @@
 транспорт, локалізація) перевірено автоматично і він проходить. Усе, що потребує
 фізичного ESP32 та бойлера, чесно позначено `NOT RUN` і виконується користувачем
 за інструкціями в `docs/`.
+
+## Модуль 1.16.0, виправлення `boiler_guard`, `guard_fault`, обробники подій (2026-11-06)
+
+Інцидент: кнопка boost не діяла. Причина: `heat_confirmed_` у прошивці не
+скидався (debounce Heat=false перевірявся лише в `on_heat_report`), тому
+`Continuous Heat Seconds` зростав до 3600 → cooldown → FAULT
+`heat_not_stopped_in_cooldown`. У FAULT `request_mode`/`request_target`
+ігноруються, але ESP відповідав 200, і модуль писав `sent`.
+
+| Пункт | Статус | Метод |
+|---|---|---|
+| Облік нагріву (`heat_tracker.h`) | **PASS** | хост-тест `g++ -std=c++17 -Wall -Wextra` → 14 перевірок, 0 збоїв |
+| Прошивка 1.16.0 compile | **PASS** | `esphome compile` → `[SUCCESS] Took 81.73 seconds` |
+| OTA на реальну плату | **PASS** | `OTA successful`; після перезавантаження `Guard State=IDLE`, `lease_renewed`, `Continuous Heat Seconds=0` |
+| Правило `guard_fault` (ALGO 1.2.0) | **PASS** | `tests/Unit/PlannerGuardFaultTest.php`, 16 перевірок |
+| `applyBoilerState` не пише при FAULT | **PASS** | модульні тести, `run_module.php` → PASSED: 355, FAILED: 0 |
+| Обробники: класові методи, `ONCHANGE`, видалення об'єктних копій | **PASS** | `tests/Unit/BoilerObjectHandlersTest.php` (100); `run.php` → PASSED: 863, FAILED: 0 |
+| Обробники на сервері | **PASS** | клас 118: 9 методів; 0 об'єктних `AUTO:`; `ONCHANGE` для 9 властивостей; `_OBJECT_SCHEMA_VERSION=1.16.0` |
+| Обробник реально виконується | **PASS** | зміна `presentPeople` (CLI) → `EXECUTED=2026-11-06 20:34:37` у `onPresentPeopleChange` |
+| `apply*` керуючих властивостей реально виконуються | **NOT RUN** | не перевіряли, щоб не торкатися бойлера; потрібне погодження |
+| Воркер перезапущено після деплою | **PASS** | `ps`: pid 7238, старт 20:29:56 |
+| FAULT не повертається після реального нагріву й зупинки | **NOT RUN** | спостереження ввечері/вночі (нічний тариф ~23:00) |

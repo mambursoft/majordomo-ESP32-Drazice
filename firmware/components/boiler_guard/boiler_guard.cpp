@@ -22,6 +22,10 @@ void BoilerGuard::on_safe_boot() {
   // (неможливо надійно відновити elapsed; консервативно починаємо спочатку).
   if (this->in_cooldown_) {
     this->cooldown_until_s_ = this->now_s_() + this->cooldown_total_s_;
+    // Відлік command_timeout для перевірки "нагрів не зупинився" починаємо від
+    // boot. Раніше pending_since_s_ лишався 0, і будь-який Heat=true одразу
+    // після reboot давав миттєвий FAULT ((now - 0) > timeout).
+    this->pending_since_s_ = this->now_s_();
     this->set_state_(GuardState::COOLDOWN, "cooldown_restored_full_after_reboot");
   } else {
     this->set_state_(GuardState::IDLE, "idle_after_boot");
@@ -32,7 +36,7 @@ void BoilerGuard::on_safe_boot() {
 void BoilerGuard::restore_durable_() {
   SavedGuardState s{};
   if (this->pref_.load(&s)) {
-    this->cont_heat_s_ = s.cont_heat_s;
+    this->heat_.set_continuous_s(s.cont_heat_s);
     this->in_cooldown_ = s.in_cooldown == 1;
     this->cooldown_total_s_ = s.cooldown_total_s ? s.cooldown_total_s : this->min_pause_s_;
   } else {
@@ -43,7 +47,7 @@ void BoilerGuard::restore_durable_() {
 
 void BoilerGuard::save_durable_() {
   SavedGuardState s{};
-  s.cont_heat_s = this->cont_heat_s_;
+  s.cont_heat_s = this->heat_.continuous_s();
   s.in_cooldown = this->in_cooldown_ ? 1 : 0;
   s.cooldown_total_s = this->cooldown_total_s_;
   s.cooldown_until_uptime_s = this->cooldown_until_s_;
@@ -52,52 +56,38 @@ void BoilerGuard::save_durable_() {
 }
 
 void BoilerGuard::on_heat_report(bool heating) {
-  // Облік тривалого нагріву за ПІДТВЕРДЖЕНИМ Heat, з debounce для дрібних провалів.
-  uint32_t now = this->now_s_();
-  if (heating) {
-    if (!this->heat_confirmed_) {
-      this->heat_confirmed_ = true;
-      this->heat_true_since_s_ = now;
-    }
-    this->heat_false_since_s_ = 0;
-  } else {
-    // Heat=false: рахуємо паузу лише після стабільного debounce.
-    if (this->heat_false_since_s_ == 0) this->heat_false_since_s_ = now;
-    if (this->heat_confirmed_ &&
-        (now - this->heat_false_since_s_) >= this->heat_false_debounce_s_) {
-      this->heat_confirmed_ = false;
-    }
-  }
+  // Лише фіксуємо подію. Debounce Heat=false і скидання лічильника робить
+  // HeatTracker у loop() ЗА ЧАСОМ — бо бінарний сенсор публікує стан тільки при
+  // зміні, і покладатися на подію для завершення debounce не можна (саме через
+  // це guard раніше залипав: "не гріє" ніколи не підтверджувалось).
+  this->heat_.report(heating, this->now_s_());
 }
 
 void BoilerGuard::loop() {
   uint32_t now = this->now_s_();
 
-  // 1. Акумулюємо тривалий нагрів лише коли Heat ПІДТВЕРДЖЕНО true.
-  static uint32_t last_tick = 0;
-  if (last_tick == 0) last_tick = now;
-  if (now != last_tick) {
-    uint32_t dt = now - last_tick;
-    last_tick = now;
-    if (this->heat_confirmed_ && !this->in_cooldown_) {
-      this->cont_heat_s_ += dt;
-    }
-  }
+  // 1. Облік нагріву: накопичуємо лише коли Heat ПІДТВЕРДЖЕНО true і ми не в
+  //    cooldown; debounce Heat=false та скидання лічильника — за часом.
+  this->heat_.tick(now, !this->in_cooldown_);
 
   // 2. Ліміт тривалого нагріву -> вимагаємо паузу.
-  if (!this->in_cooldown_ && this->cont_heat_s_ >= this->max_continuous_heat_s_) {
+  if (!this->in_cooldown_ && this->heat_.continuous_s() >= this->max_continuous_heat_s_) {
     this->enter_cooldown_("max_continuous_heat_reached");
   }
 
   // 3. Під час cooldown чекаємо фактичного Heat=false. Якщо Heat лишається true
-  //    понад command_timeout -> FAULT (а не завершена пауза).
+  //    понад command_timeout -> FAULT (а не завершена пауза). FAULT більше не
+  //    "вічний": коли нагрів справді зупинився й пауза минула, guard виходить у
+  //    IDLE сам (без reboot).
   if (this->in_cooldown_) {
-    if (this->heat_confirmed_ &&
+    if (this->heat_.confirmed() &&
         (now - this->pending_since_s_) > this->command_timeout_s_) {
-      this->set_state_(GuardState::FAULT, "heat_not_stopped_in_cooldown");
-    } else if (now >= this->cooldown_until_s_ && !this->heat_confirmed_) {
+      // Логуємо перехід один раз, а не на кожному loop().
+      if (this->state_ != GuardState::FAULT)
+        this->set_state_(GuardState::FAULT, "heat_not_stopped_in_cooldown");
+    } else if (now >= this->cooldown_until_s_ && !this->heat_.confirmed()) {
       this->in_cooldown_ = false;
-      this->cont_heat_s_ = 0;
+      this->heat_.reset_continuous();
       this->save_durable_();
       this->set_state_(GuardState::IDLE, "cooldown_complete");
     }
