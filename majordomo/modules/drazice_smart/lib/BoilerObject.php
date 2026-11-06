@@ -53,7 +53,7 @@ class BoilerObject
 
         $applied = '⚙ КЕРУВАННЯ: зміна цієї властивості ЗАСТОСОВУЄТЬСЯ ДО БОЙЛЕРА через ESP32 (з дотриманням cooldown/lease). ';
 
-        return array(
+        $cat = array(
             // --- read-only telemetry from the boiler ---
             'tempUpper'      => $h3('Температура верхнього датчика бойлера, °C (лише читання, з ESP). Архів 3 дні.'),
             'tempLower'      => $h3('Температура нижнього датчика бойлера, °C (лише читання, з ESP). Архів 3 дні.'),
@@ -113,6 +113,35 @@ class BoilerObject
             'presenceEvent'      => $p('Остання подія присутності для обробки: entered/long/too_long/left + person.', 'onPresenceEventChange'),
             'presenceEventJson'  => $p('Повна остання подія присутності (JSON) для обробника/сцен.', 'onPresenceEventJsonChange'),
         );
+
+        // User hooks: telemetry/decision properties get an EMPTY class method
+        // "on<Name>Change" linked via ONCHANGE, for the owner's own logic. The
+        // module creates the stub ONCE and never overwrites its code afterwards.
+        foreach (self::userHookProperties() as $name) {
+            if (isset($cat[$name]) && empty($cat[$name]['method'])) {
+                $cat[$name]['method'] = self::userMethodName($name);
+                $cat[$name]['onchange'] = true;
+                $cat[$name]['user'] = true;
+            }
+        }
+        return $cat;
+    }
+
+    /** Properties that get an owner-editable ONCHANGE hook. */
+    public static function userHookProperties()
+    {
+        return array(
+            'tempUpper', 'tempLower', 'heating', 'hdo', 'reportedMode', 'energyTotalKwh',
+            'bleState', 'plannedTarget', 'controlState',
+            'decisionReason', 'decisionHuman', 'batterySocHist',
+            'connected', 'boilerClockSkewSeconds', 'guardState', 'guardReason',
+        );
+    }
+
+    /** Hook method name for a property: tempUpper -> onTempUpperChange. */
+    public static function userMethodName($property)
+    {
+        return 'on' . ucfirst($property) . 'Change';
     }
 
     public static function available()
@@ -141,14 +170,14 @@ class BoilerObject
 
         // 2. Properties with descriptions; handler methods + ONCHANGE links.
         $objRow = SQLSelectOne("SELECT CLASS_ID FROM objects WHERE ID=" . (int) $objectId);
-        $classId = is_array($objRow) ? (int) $objRow['CLASS_ID'] : 0;
+        $classId = (is_array($objRow) && isset($objRow['CLASS_ID'])) ? (int) $objRow['CLASS_ID'] : 0;
         $created = 0;
         $linked = 0;
         foreach (self::catalogue() as $name => $def) {
             $histDays = isset($def['history']) ? (int) $def['history'] : 0;
-            self::ensureProperty($objectId, $name, $def['desc'], $histDays);
+            self::ensureProperty($objectId, $classId, $name, $def['desc'], $histDays);
             if (!empty($def['method']) && (!empty($def['control']) || !empty($def['onchange']))) {
-                $kind = !empty($def['control']) ? 'control' : 'presence';
+                $kind = !empty($def['control']) ? 'control' : (!empty($def['user']) ? 'user' : 'presence');
                 if (self::ensureHandlerMethod($objectId, $classId, $name, $def['method'], $kind, $moduleName)) {
                     $linked++;
                 }
@@ -166,12 +195,37 @@ class BoilerObject
      * so a deliberate short archive like 3 days is applied even if an older
      * build left 30. History is only disabled where the catalogue asks for 0.
      */
-    private static function ensureProperty($objectId, $name, $description, $histDays = 0)
+    private static function ensureProperty($objectId, $classId, $name, $description, $histDays = 0)
     {
         $histDays = (int) $histDays;
-        $rec = SQLSelectOne("SELECT ID FROM properties WHERE OBJECT_ID=" . (int) $objectId
-            . " AND TITLE='" . self::safe($name) . "'");
-        if (is_array($rec) && !empty($rec['ID'])) {
+        $classId = (int) $classId;
+        $title = self::safe($name);
+
+        // Properties live on the CLASS (CLASS_ID=class, OBJECT_ID=0): the object
+        // inherits them, and a class-level ONCHANGE is visible in the UI.
+        $rec = $classId > 0
+            ? SQLSelectOne("SELECT ID FROM properties WHERE CLASS_ID=" . $classId . " AND OBJECT_ID=0 AND TITLE='" . $title . "'")
+            : null;
+        $legacy = SQLSelectOne("SELECT ID FROM properties WHERE OBJECT_ID=" . (int) $objectId . " AND TITLE='" . $title . "'");
+        $hasLegacy = is_array($legacy) && !empty($legacy['ID']);
+        $hasClass = is_array($rec) && !empty($rec['ID']);
+
+        if ($classId > 0 && $hasLegacy && !$hasClass) {
+            // Migrate in place: same property ID, so pvalues (current value) and
+            // history rows stay attached. Only the owner changes.
+            SQLExec("UPDATE properties SET CLASS_ID=" . $classId . ", OBJECT_ID=0 WHERE ID=" . (int) $legacy['ID']);
+            $rec = array('ID' => $legacy['ID']);
+            $hasClass = true;
+        } elseif ($classId > 0 && $hasLegacy && $hasClass) {
+            // Both exist: re-point values to the class property, drop the copy.
+            SQLExec("UPDATE pvalues SET PROPERTY_ID=" . (int) $rec['ID'] . " WHERE PROPERTY_ID=" . (int) $legacy['ID']);
+            SQLExec("DELETE FROM properties WHERE ID=" . (int) $legacy['ID']);
+        } elseif ($classId <= 0 && $hasLegacy) {
+            $rec = $legacy;
+            $hasClass = true;
+        }
+
+        if ($hasClass) {
             $upd = SQLSelectOne("SELECT ID, DESCRIPTION, KEEP_HISTORY FROM properties WHERE ID=" . (int) $rec['ID']);
             $changed = false;
             if (is_array($upd)) {
@@ -196,8 +250,8 @@ class BoilerObject
             return (int) $rec['ID'];
         }
         $prop = array(
-            'OBJECT_ID'   => (int) $objectId,
-            'CLASS_ID'    => 0,
+            'OBJECT_ID'   => $classId > 0 ? 0 : (int) $objectId,
+            'CLASS_ID'    => $classId,
             'TITLE'       => $name,
             'DESCRIPTION' => $description,
             'KEEP_HISTORY'=> $histDays,
@@ -222,6 +276,13 @@ class BoilerObject
         if ($kind === 'control') {
             $head = "// AUTO: a change of '" . $property . "' is applied to the boiler (guarded REST).\n";
             $call = "\$m->applyObjectControl('" . $property . "', " . $new . ");";
+        } elseif ($kind === 'user') {
+            // Owner-editable stub: no module call, no writes (so no feedback loop).
+            return "// USER HOOK: runs on every change of '" . $property . "'.\n"
+                . "// Write your own logic here. The module creates this method once and\n"
+                . "// NEVER overwrites its code afterwards.\n"
+                . "// \$params['NEW_VALUE'], \$params['OLD_VALUE'], \$this->object_title\n"
+                . "// Example: \$v = \$params['NEW_VALUE'];\n";
         } else {
             $head = "// AUTO: fired on every change of '" . $property . "' (presence). Extend onPresenceChange().\n";
             $call = "\$m->onPresenceChange('" . $property . "', " . $new . ", " . $old . ");";
@@ -256,17 +317,24 @@ class BoilerObject
             return false;
         }
         $code = self::handlerCode($kind, $property, $moduleName);
-        $desc = ($kind === 'control')
-            ? 'AUTO: застосовує зміну властивості ' . $property . ' до бойлера (guarded).'
-            : 'AUTO: обробник зміни властивості ' . $property . ' (присутність).';
+        if ($kind === 'control') {
+            $desc = 'AUTO: застосовує зміну властивості ' . $property . ' до бойлера (guarded).';
+        } elseif ($kind === 'user') {
+            $desc = 'USER: ваш обробник зміни ' . $property . ' (модуль не перезаписує код).';
+        } else {
+            $desc = 'AUTO: обробник зміни властивості ' . $property . ' (присутність).';
+        }
 
         $exists = SQLSelectOne("SELECT ID FROM methods WHERE CLASS_ID=" . (int) $classId
             . " AND OBJECT_ID=0 AND TITLE='" . self::safe($methodName) . "'");
         if (is_array($exists) && !empty($exists['ID'])) {
-            $rec = SQLSelectOne("SELECT * FROM methods WHERE ID=" . (int) $exists['ID']);
-            $rec['CODE'] = $code;
-            $rec['DESCRIPTION'] = $desc;
-            SQLUpdate('methods', $rec);
+            // A user hook is owned by the user: never touch its code/description.
+            if ($kind !== 'user') {
+                $rec = SQLSelectOne("SELECT * FROM methods WHERE ID=" . (int) $exists['ID']);
+                $rec['CODE'] = $code;
+                $rec['DESCRIPTION'] = $desc;
+                SQLUpdate('methods', $rec);
+            }
         } else {
             $rec = array(
                 'CLASS_ID'    => (int) $classId,
@@ -284,14 +352,19 @@ class BoilerObject
                 . " AND TITLE='" . self::safe($methodName) . "' AND DESCRIPTION LIKE 'AUTO:%'");
         }
 
-        return self::setOnChange($objectId, $property, $methodName) > 0;
+        return self::setOnChange($objectId, $classId, $property, $methodName) > 0;
     }
 
     /** Set properties.ONCHANGE = method for a given property (idempotent). */
-    private static function setOnChange($objectId, $property, $methodName)
+    private static function setOnChange($objectId, $classId, $property, $methodName)
     {
-        $rec = SQLSelectOne("SELECT ID, ONCHANGE FROM properties WHERE OBJECT_ID=" . (int) $objectId
+        // Class-level property first (current layout), object-level as fallback.
+        $rec = SQLSelectOne("SELECT ID, ONCHANGE FROM properties WHERE OBJECT_ID=0 AND CLASS_ID=" . (int) $classId
             . " AND TITLE='" . self::safe($property) . "'");
+        if (!is_array($rec) || empty($rec['ID'])) {
+            $rec = SQLSelectOne("SELECT ID, ONCHANGE FROM properties WHERE OBJECT_ID=" . (int) $objectId
+                . " AND TITLE='" . self::safe($property) . "'");
+        }
         if (is_array($rec) && !empty($rec['ID'])) {
             if (!isset($rec['ONCHANGE']) || $rec['ONCHANGE'] !== $methodName) {
                 $rec['ONCHANGE'] = $methodName;

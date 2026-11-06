@@ -7,13 +7,18 @@ T::group('BoilerObject: property change handlers (ONCHANGE) catalogue');
 $cat = BoilerObject::catalogue();
 $control = array();
 $presence = array();
+$user = array();
 $methods = array();
 foreach ($cat as $name => $def) {
     if (!empty($def['control'])) {
         $control[$name] = $def['method'];
     }
     if (!empty($def['onchange'])) {
-        $presence[$name] = $def['method'];
+        if (!empty($def['user'])) {
+            $user[$name] = $def['method'];
+        } else {
+            $presence[$name] = $def['method'];
+        }
     }
     if (!empty($def['method'])) {
         $methods[] = $def['method'];
@@ -66,6 +71,27 @@ foreach ($presence as $p => $m) {
         T::ok(true, "presence code for '$p' is valid PHP");
     } catch (\ParseError $e) {
         T::ok(false, "presence code for '$p' is valid PHP (" . $e->getMessage() . ')');
+    }
+}
+
+T::group('BoilerObject: owner-editable user hooks');
+
+$wanted = array('tempUpper', 'tempLower', 'heating', 'hdo', 'reportedMode', 'energyTotalKwh', 'bleState',
+    'plannedTarget', 'controlState', 'decisionReason', 'decisionHuman',
+    'batterySocHist', 'connected', 'boilerClockSkewSeconds');
+foreach ($wanted as $p) {
+    T::ok(isset($user[$p]), "user hook exists for '$p'");
+    T::eq(isset($user[$p]) ? $user[$p] : null, 'on' . ucfirst($p) . 'Change', "hook name for '$p' follows on<Name>Change");
+}
+foreach ($user as $p => $m) {
+    $code = BoilerObject::handlerCode('user', $p, 'drazice_smart');
+    T::ok(strpos($code, "'" . $p . "'") !== false, "user stub for '$p' mentions the property");
+    T::ok(strpos($code, 'new drazice_smart') === false, "user stub for '$p' does not call the module (no cost, no loops)");
+    try {
+        token_get_all('<?php ' . $code, TOKEN_PARSE);
+        T::ok(true, "user stub for '$p' is valid PHP");
+    } catch (\ParseError $e) {
+        T::ok(false, "user stub for '$p' is valid PHP (" . $e->getMessage() . ')');
     }
 }
 

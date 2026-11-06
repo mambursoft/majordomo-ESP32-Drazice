@@ -3,6 +3,22 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/uk/1.0.0/).
 Версіонування: [SemVer](https://semver.org/lang/uk/).
 
+## [1.17.0] — 2026-11-06
+
+### Додано
+- Усі властивості `EspBoiler` тепер **властивості класу** (`CLASS_ID`, `OBJECT_ID=0`),
+  а не окремого об'єкта. Міграція на місці (`ensureObjectSchema`): ID властивості
+  зберігається, тож поточні значення й історія не втрачаються.
+- Користувацькі хуки `ONCHANGE` для телеметрії й рішень (без `continuousHeatSeconds` і
+  `decisionLog`, бо вони змінюються щохвилини): `onTempUpperChange`,
+  `onTempLowerChange`, `onHeatingChange`, `onHdoChange`, `onReportedModeChange`,
+  `onEnergyTotalKwhChange`, `onBleStateChange`,
+  `onPlannedTargetChange`, `onControlStateChange`, `onDecisionReasonChange`,
+  `onDecisionHumanChange`, `onBatterySocHistChange`,
+  `onConnectedChange`, `onBoilerClockSkewSecondsChange`, `onGuardStateChange`,
+  `onGuardReasonChange`. Метод створюється порожнім один раз; **код користувача
+  модуль більше не перезаписує**.
+
 ## [1.16.0] — 2026-11-06
 
 ### Виправлено (прошивка ESP32, захист `boiler_guard`)
