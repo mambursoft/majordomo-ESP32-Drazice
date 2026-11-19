@@ -432,6 +432,31 @@ class drazice_smart extends module
         }
     }
 
+    /**
+     * Save module configuration to project_modules.DATA.
+     *
+     * Guards against clobbering concurrent user changes made in the Admin UI:
+     * when saving internal runtime state (latches, timestamps, event baselines),
+     * we reload the latest database record and preserve all user-configured fields.
+     */
+    public function saveConfig($isUserAction = false)
+    {
+        if (!$isUserAction && function_exists('SQLSelectOne')) {
+            $rec = SQLSelectOne("SELECT * FROM project_modules WHERE NAME = '" . $this->name . "'");
+            if (isset($rec['DATA']) && $rec['DATA']) {
+                $dbConfig = @unserialize($rec['DATA']);
+                if (is_array($dbConfig)) {
+                    foreach ($dbConfig as $k => $v) {
+                        if (strpos($k, '_') !== 0 && $k !== 'SURPLUS_LATCHED' && $k !== 'CHARGE_RELEASED_LATCHED') {
+                            $this->config[$k] = $v;
+                        }
+                    }
+                }
+            }
+        }
+        parent::saveConfig();
+    }
+
     function dbInstall($data = '')
     {
         $data = <<<EOD
@@ -930,7 +955,7 @@ EOD;
         $created = isset($res['created']) ? (int) $res['created'] : 0;
         if ($failed === 0 && empty($this->config['SIMPLE_DEVICES_ENABLED'])) {
             $this->config['SIMPLE_DEVICES_ENABLED'] = 1;
-            $this->saveConfig();
+            $this->saveConfig(true);
         }
         if ($failed > 0) {
             return array('report' => $report, 'kind' => 'danger', 'key' => 'SD_PROVISION_FAIL');
@@ -953,7 +978,7 @@ EOD;
         $report = isset($res['report']) && is_array($res['report']) ? $res['report'] : array();
         // Turn the integration off: the devices are gone, so don't keep syncing.
         $this->config['SIMPLE_DEVICES_ENABLED'] = 0;
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('report' => $report, 'kind' => 'success', 'key' => 'SD_REMOVED');
     }
 
@@ -1161,7 +1186,14 @@ EOD;
         BoilerObject::set($o, 'batterySoc',     $s['battery_soc']);
         BoilerObject::set($o, 'tariffActive',   $s['tariff_active'] ? 1 : 0);
         BoilerObject::set($o, 'connected',      $s['http_available'] ? 1 : 0);
-        BoilerObject::set($o, 'lastSampleUtc',  $s['now_utc']);
+        if (!empty($s['http_available'])) {
+            BoilerObject::set($o, 'lastSampleUtc',  $s['now_utc']);
+        } else {
+            $cached = StateCache::load();
+            if ($cached !== null && !empty($cached['FETCHED_UTC'])) {
+                BoilerObject::set($o, 'lastSampleUtc', (int) $cached['FETCHED_UTC']);
+            }
+        }
         // planner reflections
         BoilerObject::set($o, 'plannedTarget',  $d['target_c']);
         BoilerObject::set($o, 'controlState',   $d['action']);
@@ -1307,15 +1339,15 @@ EOD;
                 } else {
                     $this->config['BOOST_UNTIL_UTC'] = 0;
                 }
-                $this->saveConfig();
+                $this->saveConfig(true);
                 break;
             case 'automationEnabled':
                 $this->config['AUTOMATION_ENABLED'] = $value ? 1 : 0;
-                $this->saveConfig();
+                $this->saveConfig(true);
                 break;
             case 'allowBatteryHeat':
                 $this->config['ALLOW_BATTERY_HEAT'] = $value ? 1 : 0;
-                $this->saveConfig();
+                $this->saveConfig(true);
                 break;
         }
         StateCache::markDirty();
@@ -2601,7 +2633,7 @@ EOD;
                 break;
             case 'clear_vacation':
                 $this->config['VACATION_ENABLED'] = 0;
-                $this->saveConfig();
+                $this->saveConfig(true);
                 $result = array('reload' => true);
                 $banner = $this->banner('success', 'SAVE_OK');
                 break;
@@ -2643,7 +2675,7 @@ EOD;
             return array('ok' => false, 'reason' => 'bad_mac');
         }
         $this->config['BOILER_BLE_MAC'] = strtoupper($mac);
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('ok' => true, 'mac' => strtoupper($mac));
     }
 
@@ -2714,7 +2746,7 @@ EOD;
     {
         $res = SettingsSaver::apply($this->config, $req);
         $this->config = $res['config'];
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('errors' => $res['errors'], 'rejected' => $res['rejected']);
     }
 
@@ -2730,7 +2762,7 @@ EOD;
         $this->config['BOOST_UNTIL_UTC'] = time() + $ttl;
         // This boost may run on battery power if the user ticked the box.
         $this->config['BOOST_ALLOW_BATTERY'] = (isset($req['allow_battery']) && $req['allow_battery']) ? 1 : 0;
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('boost_until_utc' => (int) $this->config['BOOST_UNTIL_UTC'],
             'allow_battery' => !empty($this->config['BOOST_ALLOW_BATTERY']));
     }
@@ -2738,7 +2770,7 @@ EOD;
     private function opCancelBoost()
     {
         $this->config['BOOST_UNTIL_UTC'] = 0;
-        $this->saveConfig();
+        $this->saveConfig(true);
     }
 
     /**
@@ -2758,7 +2790,7 @@ EOD;
         if (!$enabled) {
             $this->config['VACATION_ENABLED'] = 0;
             $this->config['VACATION_ALLOW_SURPLUS'] = $allowSurplus;
-            $this->saveConfig();
+            $this->saveConfig(true);
             return array('ok' => true);
         }
 
@@ -2777,7 +2809,7 @@ EOD;
         $this->config['VACATION_START_UTC'] = $start;
         $this->config['VACATION_END_UTC'] = $end;
         $this->config['VACATION_ALLOW_SURPLUS'] = $allowSurplus;
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('ok' => true);
     }
 
@@ -2826,7 +2858,7 @@ EOD;
         $t = $this->makeTransport();
         $res = $t->pressButton($on ? 'Boiler HDO On' : 'Boiler HDO Off');
         $this->config['HDO_DESIRED'] = $on;
-        $this->saveConfig();
+        $this->saveConfig(true);
         return array('ok' => ($res !== null), 'desired' => $on, 'error' => $t->getLastError());
     }
 
@@ -2840,13 +2872,13 @@ EOD;
     private function opSetAutomation($on)
     {
         $this->config['AUTOMATION_ENABLED'] = $on ? 1 : 0;
-        $this->saveConfig();
+        $this->saveConfig(true);
     }
 
     private function opSetDryRun(array $req)
     {
         $this->config['DRY_RUN'] = isset($req['value']) && $req['value'] == '0' ? 0 : 1;
-        $this->saveConfig();
+        $this->saveConfig(true);
     }
 
     private function opScanNetwork(array $req)
