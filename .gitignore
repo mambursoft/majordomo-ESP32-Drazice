@@ -24,6 +24,8 @@ __pycache__/
 # Пакети (збираються скриптом)
 *.tar.gz
 *.tgz
+!drazice_smart.tgz
+!app_drazice_smart.tgz
 
 # Редактори / ОС
 .idea/
@@ -48,4 +50,4 @@ zz.txt
 err.txt
 metrics.txt
 staged.txt
-SHA256SUMS
+!SHA256SUMS
