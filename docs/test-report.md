@@ -6,6 +6,17 @@
 Середовище: Windows, Python 3.13.13, PHP 8.2.29 CLI (цільовий runtime — PHP 7.3,
 синтаксис 7.3-сумісний), ESPHome 2025.9.3. Дата: 2026-11-01.
 
+## Модуль 1.17.1, історія рішень (2026-11-21, локально, без бойлера)
+
+| Пункт | Статус | Метод |
+|---|---|---|
+| Юніт-тести | **PASS** | `php majordomo/tests/run.php` → PASSED: 957, FAILED: 0 |
+| Модульні тести | **PASS** | `php majordomo/tests/run_module.php` → PASSED: 355, FAILED: 0 |
+| Синтаксис PHP | **PASS** | `php -l` для 52 PHP-файлів через `tools/build/build_package.py` (PHP 8.2.29; сумісність із 7.3 перевіряє `Php73CompatTest`) |
+| Дедуплікація рішень | **PASS** | заглушка `SQLInsert`: 4 виклики `saveDecision` (два однакові, потім зміна часу, потім зміна причини) → 2 рядки в БД |
+| Видалення рядків старших за 7 днів | **NOT RUN** | на тестовому сервері немає даних старших за retention; перевірено лише наявність `drazice_decisions` у плані `pruneHistory()` |
+| Збірка пакета | **PASS** | `python tools/build/build_package.py --force` → 2 × 254.4 KB, 63 файли, оновлено SHA256SUMS |
+
 ## Модуль 1.13.2–1.15.1, годинник бойлера, HDO-оверрайд (2026-11-05/06, реальний сервер і плата)
 
 Середовище: сервер MajorDoMo на RPi4 (PHP 7.3.31, MariaDB 10.3), ESP32 WeAct

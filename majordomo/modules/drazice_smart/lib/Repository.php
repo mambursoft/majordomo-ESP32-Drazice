@@ -16,6 +16,9 @@ namespace DraziceSmart;
 
 class Repository
 {
+    /** Signature of the last stored decision; avoids one identical row per cycle. */
+    private static $lastDecisionSignature = null;
+
     /** Read a MajorDoMo property "Object.Property" safely. Null if absent. */
     public static function readProperty($property)
     {
@@ -92,6 +95,15 @@ class Repository
             'ALGO_VERSION'    => isset($decision['algo_version']) ? (string) $decision['algo_version'] : '',
             'DRY_RUN'         => !empty($decision['dry_run']) ? 1 : 0,
         );
+        $signature = implode('|', array(
+            $rec['ACTION'], $rec['TARGET_C'], $rec['MODE'], $rec['REASON'],
+            $rec['REASON_HUMAN'], $rec['PRIORITY_LEVEL'], $rec['ALLOWED'],
+            $rec['ALGO_VERSION'], $rec['DRY_RUN'],
+        ));
+        if (self::$lastDecisionSignature === $signature) {
+            return;
+        }
+        self::$lastDecisionSignature = $signature;
         SQLInsert('drazice_decisions', $rec);
     }
 

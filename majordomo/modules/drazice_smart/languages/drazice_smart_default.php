@@ -207,6 +207,7 @@ $dictionary = array(
     'DS_RET_PRESENCE'    => 'Presence, days',
     'DS_RET_TELEMETRY'   => 'Telemetry, days',
     'DS_RET_COMMANDS'    => 'Command log, days',
+    'DS_RET_DECISIONS'   => 'Decision log, days',
     'DS_RET_HINT'        => '0 = keep forever for that table. Pruning runs at most once per day.',
 
     'DS_LOG_DECISIONS'   => 'Recent decisions',

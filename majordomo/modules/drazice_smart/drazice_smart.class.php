@@ -36,7 +36,7 @@ use DraziceSmart\ClockCheck;
 class drazice_smart extends module
 {
     /** Must equal majordomo/modinfo.json "version" (guarded by tests/Module). */
-    const MODULE_VERSION = '1.17.0';
+    const MODULE_VERSION = '1.17.1';
 
     // Declared to avoid PHP 8.2 "dynamic property" deprecations (base class
     // declares name/title/config/action/mode/view_mode/edit_mode/tab already).
@@ -351,6 +351,7 @@ class drazice_smart extends module
             'PRESENCE_RETENTION_DAYS'  => 90,   // drazice_presence
             'TELEMETRY_RETENTION_DAYS' => 30,   // drazice_telemetry
             'COMMANDS_RETENTION_DAYS'  => 30,   // drazice_commands
+            'DECISIONS_RETENTION_DAYS' => 7,    // drazice_decisions
             '_LAST_PRUNE_UTC'          => 0,    // internal: last time tables were pruned
             // Boiler clock drift check: the ESP reports the boiler's internal
             // clock (HOME_TIME) over BLE; the module compares it with the server
@@ -1636,6 +1637,7 @@ EOD;
             'drazice_presence'  => array('TS_UTC',      'PRESENCE_RETENTION_DAYS'),
             'drazice_telemetry' => array('SAMPLE_UTC',   'TELEMETRY_RETENTION_DAYS'),
             'drazice_commands'  => array('TS_UTC',       'COMMANDS_RETENTION_DAYS'),
+            'drazice_decisions' => array('DECISION_UTC', 'DECISIONS_RETENTION_DAYS'),
         );
 
         $deleted = array();
