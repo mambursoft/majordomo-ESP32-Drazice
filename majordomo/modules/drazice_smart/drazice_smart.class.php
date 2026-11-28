@@ -324,6 +324,12 @@ class drazice_smart extends module
             'SOC_PROPERTY'         => 'deye_battery.soc',
             'SURPLUS_SOC_HIGH'     => 100,
             'SURPLUS_SOC_LOW'      => 98,
+            // Реальний світловий день для надлишку генерації. Нічний тариф НЕ є
+            // сонячним днем: заряджена вночі батарея не є надлишком генерації.
+            // GUARD — допуск по краях вікна (похибка годинника/меж).
+            'SURPLUS_DAY_START_HOUR' => 8,
+            'SURPLUS_DAY_END_HOUR'   => 18,
+            'SURPLUS_DAY_GUARD_S'    => 1800,
             // forecast bindings (point at sibling solarPlanner mirror by default)
             'FORECAST_TODAY_PROP'  => '',    // e.g. SolarForecast.TodayRemainingKwh
             'FORECAST_TOMORROW_PROP' => '',
@@ -727,10 +733,17 @@ EOD;
         $tariff = Tariff::evaluate($now, self::tariffConfig($this->config, $tariffOn));
 
         // Daytime = NOT night window (with the tariff off: fixed 23:00-07:00).
-        $isDaytime = empty($tariff['active']);
+        // Invalid clock/timezone must fail closed to "night", never to "day".
+        $timeReady = !empty($tariff['ready']) && $tariff['reason'] !== 'bad_timezone';
+        $isDaytime = $timeReady && empty($tariff['active']);
         if (!$tariffOn) {
             $tariff = array('active' => false, 'reason' => 'tariff_disabled', 'meter_local' => $tariff['meter_local']);
         }
+
+        // Solar surplus has its own daylight window; tariff night end is not
+        // sunrise. Without a valid clock the window is inactive.
+        $solarWindow = Tariff::evaluate($now, self::surplusWindowConfig($this->config));
+        $surplusWindowActive = !empty($solarWindow['ready']) && !empty($solarWindow['active']);
 
         // Boost.
         $boostActive = (isset($this->config['BOOST_UNTIL_UTC']) && (int) $this->config['BOOST_UNTIL_UTC'] > $now);
@@ -765,6 +778,7 @@ EOD;
             'tariff_active'  => !empty($tariff['active']),
             'tariff_meter_local' => $tariff['meter_local'],
             'is_daytime'     => $isDaytime,
+            'surplus_window_active' => $surplusWindowActive,
             'boost_active'   => $boostActive,
             'boost_allow_battery' => !empty($this->config['BOOST_ALLOW_BATTERY']),
             'surplus_latched' => !empty($this->config['SURPLUS_LATCHED']),
@@ -844,16 +858,17 @@ EOD;
         $decision = Planner::decide($snapshot, $this->plannerConfig());
         $decision['dry_run'] = !empty($this->config['DRY_RUN']) || empty($this->config['AUTOMATION_ENABLED']);
 
-        // Maintain surplus hysteresis latch across cycles.
-        if (!empty($this->config['SOLAR_SURPLUS_ENABLED']) && $snapshot['battery_soc'] !== null) {
-            $soc = (float) $snapshot['battery_soc'];
-            $hi = (float) $this->config['SURPLUS_SOC_HIGH'];
-            $lo = (float) $this->config['SURPLUS_SOC_LOW'];
-            $latched = !empty($this->config['SURPLUS_LATCHED']);
-            if (!$latched && $soc >= $hi) $latched = true;
-            if ($latched && $soc <= $lo) $latched = false;
-            $this->config['SURPLUS_LATCHED'] = $latched ? 1 : 0;
-            $this->saveConfig();
+        // Maintain the surplus latch with the SAME rule the planner used.
+        // Night or an unknown clock releases it: an overnight charge must not
+        // be mistaken for solar surplus in the morning.
+        if (!empty($this->config['SOLAR_SURPLUS_ENABLED'])) {
+            $latch = Planner::evalSurplusLatch($snapshot, $this->plannerConfig());
+            $newLatch = $latch['latched'] ? 1 : 0;
+            $oldLatch = (int) (isset($this->config['SURPLUS_LATCHED']) ? $this->config['SURPLUS_LATCHED'] : 0);
+            if ($oldLatch !== $newLatch) {
+                $this->config['SURPLUS_LATCHED'] = $newLatch;
+                $this->saveConfig();
+            }
         }
 
         // Maintain the charge-priority latch (same pure rule the planner used).
@@ -2447,22 +2462,24 @@ EOD;
 
     /**
      * Tariff::evaluate config. With the tariff on: the configured cheap window.
-     * With it off: a fixed 23:00-07:00 night (no offset/guards) used only to
-     * tell day from night; the caller then forces tariff_active=false.
+     * With it off: a fixed 23:00-07:00 night used only to tell day from night;
+     * the caller then forces tariff_active=false. The meter offset is applied
+     * in both modes so "day" does not jump by the offset when the tariff is off.
      */
     public static function tariffConfig(array $c, $tariffOn)
     {
         $tz = isset($c['TIMEZONE']) ? $c['TIMEZONE'] : 'Europe/Kyiv';
-        if (!$tariffOn) {
-            return array(
-                'timezone' => $tz, 'cheap_start_hour' => 23, 'cheap_start_min' => 0,
-                'cheap_end_hour' => 7, 'cheap_end_min' => 0, 'meter_offset_seconds' => 0,
-                'start_guard_seconds' => 0, 'end_guard_seconds' => 0,
-            );
-        }
         $g = function ($k, $d) use ($c) {
             return (isset($c[$k]) && is_numeric($c[$k])) ? $c[$k] : $d;
         };
+        if (!$tariffOn) {
+            return array(
+                'timezone' => $tz, 'cheap_start_hour' => 23, 'cheap_start_min' => 0,
+                'cheap_end_hour' => 7, 'cheap_end_min' => 0,
+                'meter_offset_seconds' => $g('METER_OFFSET_SECONDS', 0),
+                'start_guard_seconds' => 0, 'end_guard_seconds' => 0,
+            );
+        }
         return array(
             'timezone'             => $tz,
             'cheap_start_hour'     => $g('CHEAP_START_HOUR', 23),
@@ -2472,6 +2489,29 @@ EOD;
             'meter_offset_seconds' => $g('METER_OFFSET_SECONDS', 0),
             'start_guard_seconds'  => $g('START_GUARD_SECONDS', 0),
             'end_guard_seconds'    => $g('END_GUARD_SECONDS', 0),
+        );
+    }
+
+    /**
+     * Real solar-day window for the surplus rule. It is deliberately separate
+     * from the cheap-tariff window: the end of night heating is not sunrise.
+     * The guard is a tolerance at both edges (clock error / rounding).
+     */
+    public static function surplusWindowConfig(array $c)
+    {
+        $tz = isset($c['TIMEZONE']) ? $c['TIMEZONE'] : 'Europe/Kyiv';
+        $g = function ($k, $d) use ($c) {
+            return (isset($c[$k]) && is_numeric($c[$k])) ? $c[$k] : $d;
+        };
+        return array(
+            'timezone'             => $tz,
+            'cheap_start_hour'     => $g('SURPLUS_DAY_START_HOUR', 8),
+            'cheap_start_min'      => 0,
+            'cheap_end_hour'       => $g('SURPLUS_DAY_END_HOUR', 18),
+            'cheap_end_min'        => 0,
+            'meter_offset_seconds' => $g('METER_OFFSET_SECONDS', 0),
+            'start_guard_seconds'  => $g('SURPLUS_DAY_GUARD_S', 1800),
+            'end_guard_seconds'    => $g('SURPLUS_DAY_GUARD_S', 1800),
         );
     }
 

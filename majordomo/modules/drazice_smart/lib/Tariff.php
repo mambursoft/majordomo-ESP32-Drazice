@@ -24,7 +24,7 @@ class Tariff
      *                                   cheap_start_min, cheap_end_hour,
      *                                   cheap_end_min, meter_offset_seconds,
      *                                   start_guard_seconds, end_guard_seconds
-     * @return array  active(bool), reason(string), meter_local(string)
+     * @return array  active(bool), ready(bool), reason(string), meter_local(string)
      */
     public static function evaluate($nowUtc, $cfg)
     {
@@ -42,7 +42,9 @@ class Tariff
         try {
             $zone = new \DateTimeZone($tz);
         } catch (\Exception $e) {
-            return array('active' => false, 'reason' => 'bad_timezone', 'meter_local' => '');
+            // Fail closed: with no valid clock we must not claim that it is day.
+            return array('active' => false, 'ready' => false,
+                'reason' => 'bad_timezone', 'meter_local' => '');
         }
 
         // Meter time = real UTC + offset, then expressed in local tz.
@@ -60,17 +62,27 @@ class Tariff
         $startSec = $startEdge + $startGuard;               // start later by guard
         $endSec = $endEdge - $endGuard;                     // end earlier by guard
 
+        // An out-of-range edge (or a zero-length window) must not silently
+        // become "always active" or "always inactive by accident".
+        $boundsOk = $startEdge !== $endEdge
+            && $startSec >= 0 && $startSec < 86400
+            && $endSec >= 0 && $endSec < 86400;
+
         $active = false;
-        if ($startEdge > $endEdge) {
-            // Crosses midnight, e.g. 23:05 -> 06:55. Compare by seconds-of-day.
-            $active = ($secondsOfDay >= $startSec) || ($secondsOfDay < $endSec);
-        } else {
-            $active = ($secondsOfDay >= $startSec) && ($secondsOfDay < $endSec);
+        if ($boundsOk) {
+            if ($startEdge > $endEdge) {
+                // Crosses midnight, e.g. 23:05 -> 06:55. Compare by seconds-of-day.
+                $active = ($secondsOfDay >= $startSec) || ($secondsOfDay < $endSec);
+            } else {
+                $active = ($secondsOfDay >= $startSec) && ($secondsOfDay < $endSec);
+            }
         }
 
         return array(
             'active' => $active,
-            'reason' => $active ? 'cheap_window' : 'day_tariff',
+            'ready' => true,
+            'reason' => !$boundsOk ? 'invalid_window'
+                : ($active ? 'cheap_window' : 'day_tariff'),
             'meter_local' => $dt->format('Y-m-d H:i:s T'),
         );
     }

@@ -27,7 +27,7 @@ namespace DraziceSmart;
 
 class Planner
 {
-    const ALGO_VERSION = '1.2.0';
+    const ALGO_VERSION = '1.3.0';
 
     /**
      * @param array $s   snapshot (see Repository::buildSnapshot keys)
@@ -318,9 +318,59 @@ class Planner
     }
 
     /**
-     * Solar surplus rule. Requires daytime and a valid SOC that reached the
-     * high threshold. Hysteresis: once active, stays active until SOC drops to
-     * the low threshold (state carried in snapshot as surplus_latched).
+     * Single source of truth for the solar-surplus latch. The latch may only be
+     * created and kept during the real solar window. A battery charged overnight
+     * is NOT a generation surplus: night (or an unknown clock) releases it.
+     *
+     * Snapshot key surplus_window_active is authoritative when present; older
+     * callers without it fall back to is_daytime for backward compatibility.
+     *
+     * @return array latched(bool), reason(string)
+     */
+    public static function evalSurplusLatch($s, $c)
+    {
+        $out = array('latched' => false, 'reason' => '');
+        if (empty($c['solar_surplus_enabled'])) {
+            $out['reason'] = 'disabled';
+            return $out;
+        }
+        $day = array_key_exists('surplus_window_active', $s)
+            ? !empty($s['surplus_window_active'])
+            : !empty($s['is_daytime']);
+        if (!$day) {
+            $out['reason'] = 'no_solar_window';
+            return $out;
+        }
+        $soc = isset($s['battery_soc']) ? $s['battery_soc'] : null;
+        if ($soc === null) {
+            $out['reason'] = 'soc_unknown';
+            return $out;
+        }
+        $hi = isset($c['surplus_soc_high']) ? (float) $c['surplus_soc_high'] : 100.0;
+        $lo = isset($c['surplus_soc_low'])  ? (float) $c['surplus_soc_low']  : 98.0;
+        // Without a lower threshold strictly below the upper one the latch
+        // would either lock forever or oscillate. Fail closed.
+        if (!($lo < $hi) || $hi < 0.0 || $hi > 100.0 || $lo < 0.0 || $lo > 100.0) {
+            $out['reason'] = 'bad_thresholds';
+            return $out;
+        }
+        $latched = !empty($s['surplus_latched']);
+        $soc = (float) $soc;
+        if (!$latched && $soc >= $hi) {
+            $latched = true;
+        }
+        if ($latched && $soc <= $lo) {
+            $latched = false;
+        }
+        $out['latched'] = $latched;
+        $out['reason'] = $latched ? 'surplus' : 'below_high';
+        return $out;
+    }
+
+    /**
+     * Solar surplus rule. Requires the solar window and a valid SOC that reached
+     * the high threshold. Hysteresis is shared with the cycle worker through
+     * evalSurplusLatch(), so a night charge can never become a morning surplus.
      */
     private static function evalSolarSurplus($s, $c)
     {
@@ -328,29 +378,17 @@ class Planner
         if (empty($c['solar_surplus_enabled'])) {
             return $out;
         }
-        if (empty($s['is_daytime'])) {
-            return $out;
-        }
-        if (!isset($s['battery_soc']) || $s['battery_soc'] === null) {
+        $latch = self::evalSurplusLatch($s, $c);
+        if (!$latch['latched']) {
             return $out;
         }
         $soc = (float) $s['battery_soc'];
         $hi = isset($c['surplus_soc_high']) ? (float) $c['surplus_soc_high'] : 100.0;
         $lo = isset($c['surplus_soc_low'])  ? (float) $c['surplus_soc_low']  : 98.0;
-
-        $latched = !empty($s['surplus_latched']);
-        if (!$latched && $soc >= $hi) {
-            $latched = true;
-        }
-        if ($latched && $soc <= $lo) {
-            $latched = false;
-        }
-        if ($latched) {
-            $out['active'] = true;
-            $out['human'] = 'Надлишок генерації: SOC батареї ' . self::fmt($soc)
-                . '% (поріг ' . self::fmt($hi) . '%). Витрачаємо надлишок на нагрів води, доки SOC не впаде до '
-                . self::fmt($lo) . '%.';
-        }
+        $out['active'] = true;
+        $out['human'] = 'Надлишок генерації: SOC батареї ' . self::fmt($soc)
+            . '% (поріг ' . self::fmt($hi) . '%). Витрачаємо надлишок на нагрів води, доки SOC не впаде до '
+            . self::fmt($lo) . '%.';
         return $out;
     }
 
