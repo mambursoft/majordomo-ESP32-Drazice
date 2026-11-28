@@ -125,7 +125,10 @@ class Explain
     private static function holdItems($code, $s, $c, $v)
     {
         $surplusOn = !empty($c['SOLAR_SURPLUS_ENABLED']);
-        $day = !empty($s['is_daytime']);
+        // The hint must follow the real solar window, not the tariff night end.
+        $day = array_key_exists('surplus_window_active', $s)
+            ? !empty($s['surplus_window_active'])
+            : !empty($s['is_daytime']);
         $surplusItem = $surplusOn ? ($day ? 'HT_SURPLUS_SOC' : 'HT_SURPLUS_NIGHT') : 'HT_SURPLUS_ENABLE';
         $tariffOn = !isset($c['TARIFF_ENABLED']) || !empty($c['TARIFF_ENABLED']);
 

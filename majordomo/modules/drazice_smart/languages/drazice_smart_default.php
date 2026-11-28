@@ -147,6 +147,10 @@ $dictionary = array(
     'DS_H_SOC_PROP'      => 'Default deye_battery.soc. Can be reassigned to another property.',
     'DS_H_SURPLUS_HIGH'  => 'When SOC reaches this during the day (typically 100%), we treat it as a generation surplus.',
     'DS_H_SURPLUS_LOW'   => 'Heat until SOC drops to this (typically 98%). Hysteresis avoids rapid toggling.',
+    'DS_H_SURPLUS_WINDOW' => 'Surplus heating works only inside this solar window. The night tariff is NOT solar day: a battery charged overnight is not a generation surplus. The guard adds a tolerance at both edges.',
+    'DS_SURPLUS_DAY_START' => 'Solar day start (hour)',
+    'DS_SURPLUS_DAY_END'   => 'Solar day end (hour)',
+    'DS_SURPLUS_DAY_GUARD' => 'Edge tolerance (seconds)',
     'DS_SURPLUS_RELATED' => 'Related module: "Solar Planner" (solar generation forecast). Optional — surplus is detected directly from SOC. If installed, bind its properties on the "Forecast sources" tab.',
 
     'DS_TAR_INTRO'       => 'The cheap (night) tariff is computed from the meter clock.',

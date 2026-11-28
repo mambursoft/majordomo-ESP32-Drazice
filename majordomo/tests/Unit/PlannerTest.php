@@ -98,6 +98,27 @@ T::ok($d['reason'] !== 'solar_surplus', 'SOC drops to low 98 -> surplus released
 $d = Planner::decide(baseSnap(array('battery_soc' => 100.0, 'is_daytime' => false, 'temp_upper' => 55.0, 'tariff_active' => true)), $cfg);
 T::ok($d['reason'] !== 'solar_surplus', 'night + SOC100 -> not solar_surplus');
 
+// The latch is shared with the cycle worker: night releases an overnight charge.
+$latchSnap = array('battery_soc' => 100.0, 'surplus_latched' => false, 'is_daytime' => true);
+T::eq(Planner::evalSurplusLatch(array_merge($latchSnap, array('surplus_window_active' => false)), $cfg)['latched'],
+      false, 'no solar window -> latch never created at SOC100');
+T::eq(Planner::evalSurplusLatch(array_merge($latchSnap, array('surplus_window_active' => true)), $cfg)['latched'],
+      true, 'solar window + SOC100 -> latch created');
+T::eq(Planner::evalSurplusLatch(array_merge($latchSnap, array('surplus_window_active' => false, 'battery_soc' => 99.0, 'surplus_latched' => true)), $cfg)['latched'],
+      false, 'night/morning without solar window -> previous latch released');
+T::eq(Planner::evalSurplusLatch(array_merge($latchSnap, array('surplus_window_active' => true, 'battery_soc' => 98.0, 'surplus_latched' => true)), $cfg)['latched'],
+      false, 'SOC drops to low 98 -> latch released');
+T::eq(Planner::evalSurplusLatch(array_merge($latchSnap, array('surplus_window_active' => true)), array_merge($cfg, array('surplus_soc_high' => 98, 'surplus_soc_low' => 98)))['latched'],
+      false, 'hi == lo -> fail closed, no latch');
+
+// A stale night latch must not heat in the morning and must not lift the ban.
+$d = Planner::decide(baseSnap(array('battery_soc' => 99.0, 'surplus_latched' => true,
+    'surplus_window_active' => false, 'temp_upper' => 55.0)), $cfg);
+T::ok($d['reason'] !== 'solar_surplus', 'stale night latch + morning -> not solar_surplus');
+$d = Planner::decide(baseSnap(array('battery_soc' => 99.0, 'surplus_latched' => true,
+    'surplus_window_active' => false, 'power_source' => 'battery', 'temp_upper' => 55.0)), $cfg);
+T::eq($d['reason'], 'battery_source_block', 'stale latch does not lift battery ban');
+
 // Level 8b: cheap tariff night heating.
 $d = Planner::decide(baseSnap(array('tariff_active' => true, 'is_daytime' => false, 'temp_upper' => 50.0, 'battery_soc' => 50.0)), $cfg);
 T::eq($d['reason'], 'cheap_tariff', 'cheap tariff -> cheap_tariff');

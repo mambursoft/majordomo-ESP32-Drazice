@@ -69,3 +69,24 @@ T::eq(Tariff::evaluate(kyivUtc('2026-01-15 22:59:59'), $cfgNoMin)['active'],
 T::eq(Tariff::evaluate(kyivUtc('2026-01-15 23:00:00'), $cfgNoMin)['active'], true,  'no-min keys: 23:00 -> cheap (min=0)');
 T::eq(Tariff::evaluate(kyivUtc('2026-01-15 06:59:59'), $cfgNoMin)['active'], true,  'no-min keys: 06:59:59 -> cheap (min=0)');
 T::eq(Tariff::evaluate(kyivUtc('2026-01-15 07:00:00'), $cfgNoMin)['active'], false, 'no-min keys: 07:00 -> day (min=0)');
+
+// A valid clock is required before any "day" decision is trusted.
+T::eq($bad['ready'], false, 'bad timezone -> not ready (fail closed)');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 03:00:00'), $cfg)['ready'], true, 'valid timezone -> ready');
+
+// Out-of-range guard/window must be inactive, never an accidental always-on window.
+$cfgBadGuard = $cfg; $cfgBadGuard['start_guard_seconds'] = 90000; $cfgBadGuard['end_guard_seconds'] = 90000;
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 23:30:00'), $cfgBadGuard)['active'], false, 'invalid guard -> inactive');
+$cfgSame = $cfg; $cfgSame['cheap_end_hour'] = 23;
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 23:30:00'), $cfgSame)['active'], false, 'zero-length window -> inactive');
+
+// Solar-day window (08:00-18:00) with a 30-minute tolerance at both edges.
+// The end of the cheap tariff (06:55) must NOT count as solar day.
+$solarCfg = array('timezone' => 'Europe/Kyiv', 'cheap_start_hour' => 8, 'cheap_end_hour' => 18,
+    'meter_offset_seconds' => 0, 'start_guard_seconds' => 1800, 'end_guard_seconds' => 1800);
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 06:55:00'), $solarCfg)['active'], false, '06:55 winter -> not solar day');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 08:29:59'), $solarCfg)['active'], false, '08:29:59 -> inside tolerance, not yet solar');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 08:30:00'), $solarCfg)['active'], true,  '08:30 -> solar day');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 17:29:59'), $solarCfg)['active'], true,  '17:29:59 -> solar day');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 17:30:00'), $solarCfg)['active'], false, '17:30 -> outside tolerance');
+T::eq(Tariff::evaluate(kyivUtc('2026-01-15 20:00:00'), $solarCfg)['active'], false, '20:00 -> no solar surplus');
